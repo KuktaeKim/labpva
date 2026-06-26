@@ -1,0 +1,40 @@
+# CONFIG - labpva build configuration
+#
+# EPICS-standard configure/ layout:
+#   configure/RELEASE      external product paths (EPICS_BASE, MATLABDIR)
+#   configure/CONFIG_APP   includes RELEASE + $(EPICS_BASE)/configure/CONFIG
+#   configure/CONFIG_SITE  site-tunable build knobs (C++ std, PVA lib list, ...)
+#   configure/CONFIG       this file: derived / mechanical settings
+#
+# labpva intentionally keeps a direct-`mex` build rather than the EPICS
+# O.<arch>/PROD machinery (the MEX compile/link rules live in glue/Makefile and
+# matlab/Makefile and read the variables assembled here). Adopting the standard
+# configure/ file set is what lets EPICS_BASE live in configure/RELEASE and lets
+# arch/compiler settings come from EPICS base, as in the labca reference build.
+
+include $(TOP)/configure/CONFIG_APP
+include $(TOP)/configure/CONFIG_SITE
+
+# ---- MATLAB mex toolchain --------------------------------------------------
+ifndef MATLABDIR
+  $(error MATLABDIR is not defined -- set it in configure/RELEASE)
+endif
+MEX    = $(MATLABDIR)/bin/mex
+MEXEXT = mexa64
+
+# ---- EPICS include / lib locations -----------------------------------------
+EPICS_INC = $(EPICS_BASE)/include
+EPICS_LIB = $(EPICS_BASE)/lib/$(EPICS_HOST_ARCH)
+
+# EPICS headers: include/ plus an OS and a compiler subdir.
+EPICS_INCLUDES = -I$(EPICS_INC) \
+                 -I$(EPICS_INC)/os/$(EPICS_OS_CLASS) \
+                 -I$(EPICS_INC)/compiler/$(EPICS_CMPLR_CLASS)
+
+# ---- assembled flags forwarded to mex --------------------------------------
+PVA_LIBS     = $(LABPVA_PVA_LIBS)
+CXXSTD       = $(LABPVA_CXXSTD)
+MEX_CXXFLAGS = CXXFLAGS='$$CXXFLAGS -fPIC $(CXXSTD)'
+MEX_LDFLAGS  = LDFLAGS='$$LDFLAGS -Wl,-rpath,$(EPICS_LIB)'
+
+-include $(TOP)/configure/CONFIG.local

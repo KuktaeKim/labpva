@@ -1,0 +1,22 @@
+# CONFIG_APP - bring in external product definitions and EPICS base config.
+#
+# Mirrors the EPICS-standard CONFIG_APP: pull in configure/RELEASE (external
+# product paths), then include EPICS base's own build configuration so that
+# arch/OS/compiler variables come from base rather than being hard-coded here.
+
+include $(TOP)/configure/RELEASE
+-include $(TOP)/configure/RELEASE.$(EPICS_HOST_ARCH)
+
+# EPICS_BASE must be defined in configure/RELEASE.
+ifndef EPICS_BASE
+  $(error EPICS_BASE is not defined -- set it in configure/RELEASE)
+endif
+
+# Host architecture. Normally provided by the environment or auto-detected by
+# EPICS base; fall back to the host this was developed on if unset. Build
+# products land in bin/$(EPICS_HOST_ARCH)/labpva.
+EPICS_HOST_ARCH ?= RL8-x86_64
+
+# Pull in EPICS base's build configuration (compiler, OS_CLASS, arch vars, ...).
+CONFIG = $(EPICS_BASE)/configure
+include $(CONFIG)/CONFIG

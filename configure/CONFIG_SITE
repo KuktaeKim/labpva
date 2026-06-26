@@ -1,0 +1,24 @@
+# CONFIG_SITE - site-tunable build options for labpva
+#
+# Knobs a site or admin may reasonably want to change live here. Mechanical /
+# derived settings are assembled in configure/CONFIG. Local, un-versioned
+# overrides may go in configure/CONFIG_SITE.local (read at the end).
+
+# ---- target platform sub-dirs ---------------------------------------------
+# labpva is a Linux / gcc, MATLAB-only build. EPICS headers live under
+# include/os/<class> and include/compiler/<class>; these name those subdirs.
+# (Kept explicit rather than derived so the build does not depend on EPICS
+# base's per-target OS_CLASS being populated outside an O.<arch> context.)
+EPICS_OS_CLASS    ?= Linux
+EPICS_CMPLR_CLASS ?= gcc
+
+# ---- C++ standard ----------------------------------------------------------
+# EPICS 7 sources are C++11.
+LABPVA_CXXSTD ?= -std=c++11
+
+# ---- EPICS 7 libraries the MEX / glue link against -------------------------
+# Link order matters: dependants before dependencies.
+#   pvaClient -> pvAccess(+CA) -> nt -> pvData -> ca -> Com
+LABPVA_PVA_LIBS ?= -lpvaClient -lpvAccessCA -lpvAccess -lnt -lpvData -lca -lCom
+
+-include $(TOP)/configure/CONFIG_SITE.local

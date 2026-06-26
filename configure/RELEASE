@@ -1,0 +1,28 @@
+# RELEASE - Location of external products for labpva
+#
+# This is the EPICS-standard place to point the build at its external
+# dependencies. After changing it, run "make distclean && make" in the top
+# directory.
+#
+# Host/site-specific overrides may be placed in either of these (read below,
+# so they take precedence over the defaults set here):
+#   $(TOP)/RELEASE_SITE            - optional site-wide file
+#   $(TOP)/configure/RELEASE.local - local override, not under version control
+#
+# NOTE: the build does not track dependencies on files external to this
+# application; rebuild from clean when EPICS_BASE or MATLABDIR changes.
+
+##########################################
+# EPICS 7 base. Must include the full pvAccess/pvData/normativeTypes/pvaClient
+# C++ stack (bundled in base >= 7.0).
+EPICS_BASE = /usr/local/epics/R7.0.10/base
+
+##########################################
+# MATLAB install providing the `mex` toolchain (developed against R2025b; any
+# R2023b+ works). Used only when building the MEX layer.
+MATLABDIR = /remote/hpcs-sw/RHEL-8.x86_64/modules/matlab/2025b
+
+##########################################
+# Optional overrides (win over the defaults above).
+-include $(TOP)/RELEASE_SITE
+-include $(TOP)/configure/RELEASE.local

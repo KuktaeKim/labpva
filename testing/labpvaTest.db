@@ -1,0 +1,58 @@
+# labpvaTest.db - minimal records exercising labpva's marshalling paths.
+#
+# Run with EPICS 7 base on your PATH:
+#     softIocPVA -d labpvaTest.db
+# softIocPVA serves every record over pvAccess as the matching normative type
+# (ao/ai -> NTScalar, waveform -> NTScalarArray, mbbi -> NTEnum, etc.), which is
+# exactly what pvaGet / pvaGetStructure consume.
+
+# NTScalar (double) with display/control/alarm metadata so the metadata
+# getters (pvaGetControlLimits/GraphicLimits/Units/Precision/...) have data.
+record(ao, "labpva:test:ao") {
+    field(DESC, "labpva scalar double")
+    field(EGU,  "mm")
+    field(PREC, "3")
+    field(DRVL, "-10")  field(DRVH, "10")     # control limits
+    field(LOPR, "-10")  field(HOPR, "10")     # display (graphic) limits
+    field(LOLO, "-9")   field(HIHI, "9")      # alarm limits
+    field(LOW,  "-8")   field(HIGH, "8")      # warning limits
+    field(LLSV, "MAJOR") field(HHSV, "MAJOR")
+    field(LSV,  "MINOR") field(HSV,  "MINOR")
+    field(VAL,  "0")
+}
+
+# NTScalarArray (double waveform)
+record(waveform, "labpva:test:wf") {
+    field(DESC, "labpva double waveform")
+    field(FTVL, "DOUBLE")
+    field(NELM, "16")
+    field(EGU,  "counts")
+}
+
+# NTEnum (mbbi) -> pvaGet returns the selected choice string;
+# pvaGetEnumStrings returns {'Off','On','Trip'}
+record(mbbi, "labpva:test:enum") {
+    field(DESC, "labpva enum")
+    field(ZRST, "Off")  field(ZRVL, "0")
+    field(ONST, "On")   field(ONVL, "1")
+    field(TWST, "Trip") field(TWVL, "2")
+}
+
+# string and boolean scalars
+record(stringin, "labpva:test:str") {
+    field(DESC, "labpva string")
+    field(VAL,  "hello pva")
+}
+record(bi, "labpva:test:bi") {
+    field(DESC, "labpva boolean")
+    field(ZNAM, "false")
+    field(ONAM, "true")
+}
+
+# A writable analog the put tests can move.
+record(ao, "labpva:test:setpoint") {
+    field(DESC, "labpva writable setpoint")
+    field(EGU,  "A")
+    field(PREC, "4")
+    field(DRVL, "0") field(DRVH, "100")
+}
