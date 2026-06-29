@@ -23,6 +23,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     if (nrhs < 1 || !mxIsChar(prhs[0]))
         mexErrMsgIdAndTxt("labpva:invalidArg", "pvaInfo: need a single PV name");
 
+    lockMexFile();          /* about to do EPICS channel work -- pin the MEX */
     std::string name = argString(prhs[0]);
     PvaError err;
     PVStructurePtr pv = pvaGet(name, "field()", err);

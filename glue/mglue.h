@@ -15,6 +15,14 @@
 
 namespace labpva {
 
+/* Lock this MEX file in memory (mexLock) on first call, so MATLAB does not
+ * unload labpva -- and with it the EPICS client libraries -- while pvAccess
+ * background threads are still running. Unloading mid-teardown segfaults (a
+ * worker thread jumps into just-unmapped code). Mirrors labca's CONFIG_MEXLOCK.
+ * Idempotent: locks at most once per MEX. Called from buildPVs (covers every
+ * channel verb) and from pvaInfo (which parses its name directly). */
+void lockMexFile();
+
 /* Extract PV name(s) from a char row or a cell array of char. Sets
  * `wasCell` true iff the caller passed a cell (which fixes list-shaped
  * output even for one element). */

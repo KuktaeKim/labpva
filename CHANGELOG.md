@@ -1,5 +1,31 @@
 # labpva changelog
 
+## 2026-06-29 — fix: segfault when quitting MATLAB after a failed connect / pvaClear
+
+**Symptom.** `pvaGet` on a non-existent PV (connect fails), or `pvaClear` on a
+name with no active monitor (or repeated `pvaClear`), left MATLAB crashing with a
+segmentation violation **on exit** — the crash stack a background thread in
+`clone`/`libpthread` jumping to a bad address. A `pvaGet` of an existing PV then
+exit was clean.
+
+**Root cause.** labpva never locked its MEX in memory. On quit, MATLAB unloads
+the MEX (and with them the EPICS client libraries), but a pvAccess worker thread
+(e.g. the periodic channel-search timer left running by an unconnected channel)
+is still alive and jumps into code that was just unmapped → segfault. Successful,
+fully-connected reads happened to tear down cleanly; the half-connected / no-op
+paths did not.
+
+**Fix.** Mirror labca's `CONFIG_MEXLOCK`: call `mexLock()` once on the first
+channel-touching call (`labpva::lockMexFile()`, invoked from `buildPVs` — which
+covers every verb that names a PV — and from `pvaInfo`). The MEX (and the EPICS
+libs it depends on) then stay mapped for the life of the process, so worker
+threads never execute unmapped code. We never unlock — like labca, EPICS client
+state isn't torn down cleanly mid-session; the process just exits with the libs
+loaded. Config-only verbs (timeout/provider/debug/lastError) don't lock.
+
+**Consequence.** `clear mex` no longer unloads labpva. After rebuilding, **restart
+MATLAB** (not `clear mex`) to pick up new binaries.
+
 > **2026-06-11 session summary.** First live-IOC bring-up of labpva from MATLAB.
 > Fixed the monitor / process-global-state build bug (shared `libmpvaglue.so`),
 > isolated the monitor cache from metadata reads, added a working `help` system,

@@ -5,6 +5,21 @@ using namespace epics::pvData;
 
 namespace labpva {
 
+void lockMexFile()
+{
+    /* Lock this MEX in memory on first channel-touching call, so MATLAB does
+     * NOT unload labpva -- and with it the EPICS client libraries -- while
+     * pvAccess background threads are still alive. Without this, quitting MATLAB
+     * after a get/clear that left a worker thread running segfaults: the thread
+     * jumps into code that was just unmapped (the crash shows a thread in
+     * clone/libpthread with a bad RIP). Mirrors labca's CONFIG_MEXLOCK. We never
+     * unlock -- the process simply exits with the libs still mapped, like labca
+     * (EPICS client state cannot be torn down cleanly mid-session). Idempotent:
+     * locks at most once per MEX file. */
+    static bool locked = false;
+    if (!locked) { mexLock(); locked = true; }
+}
+
 std::string argString(const mxArray *mx)
 {
     if (!mx || !mxIsChar(mx)) return "";
@@ -16,6 +31,7 @@ std::string argString(const mxArray *mx)
 
 std::vector<std::string> buildPVs(const mxArray *mx, bool &wasCell, PvaError &err)
 {
+    lockMexFile();          /* about to do EPICS channel work -- pin the MEX */
     std::vector<std::string> out;
     wasCell = false;
     if (!mx) {
