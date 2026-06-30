@@ -82,9 +82,19 @@ name; fields you omit keep their fetched value. `pvaPut` writes only `value`;
 | NTScalar       | the scalar value                          | value + alarm/timeStamp/display/...   |
 | NTScalarArray  | the waveform (row vector)                 | as above                              |
 | NTEnum         | selected choice **string** (or index if a numeric type is requested) | `value.{index,choices,choice}` |
-| NTTable        | struct-of-columns (the `value` sub-struct)| labels + per-column arrays            |
-| NTNDArray      | (whole structure — image)                 | value(union)/dimension[]/codec/...    |
-| custom         | `.value` if present, else whole structure | the whole tree                        |
+| NTTable        | **the whole structure** (labels + columns)| labels + per-column arrays            |
+| NTNDArray      | **the whole structure** (image)           | value(union)/dimension[]/codec/...    |
+| custom         | `.value` if it is a scalar/array/enum, else **the whole structure** | the whole tree |
+
+`pvaGet` returns a **bare value only for a scalar, scalar-array, or enum**
+`value` field (the labca-faithful cases — the thing you compute with). For
+anything richer — a `union` value (NTNDArray image), a structured value
+(NTTable), a structure array, or a PV with no top-level `value` — it returns the
+**whole nested structure**, identical to `pvaGetStructure`. So `pvaGet` covers
+both cases; `pvaGetStructure` remains only for forcing the full tree of a
+scalar PV (e.g. to read `value`+`alarm`+`display` together). To make this work,
+the `pvaGet` value verb fetches `field()` (the whole structure), not just
+`field(value,alarm,timeStamp)`.
 
 Metadata getters (`pvaGetControlLimits`, `pvaGetUnits`, ...) read the standard
 NT property sub-fields (`control.*`, `display.*`, `valueAlarm.*`). In CA these

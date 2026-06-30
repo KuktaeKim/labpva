@@ -9,8 +9,11 @@
  *
  * For an NTScalar this returns the scalar in `.value` (drop-in for lcaGet);
  * for an NTScalarArray, the waveform; for an NTEnum, the selected choice
- * string (or its index if a numeric type is requested). For a non-NT
- * structure it returns the whole tree as a struct (see pvaGetStructure).
+ * string (or its index if a numeric type is requested). For anything richer --
+ * an NTNDArray image, an NTTable, a custom multi-field group, or any PV without
+ * a top-level scalar/array `value` -- it returns the WHOLE structure as a nested
+ * struct (the same tree pvaGetStructure gives). So pvaGet covers both cases:
+ * bare value for scalars/arrays/enums, full structure otherwise.
  *
  * While a monitor is active on the name, the value is served from the monitor
  * cache (ezca-style, no network round-trip). Pass a trailing logical `poll`
@@ -49,7 +52,11 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     std::vector<mxArray *> vals;
     std::vector<double> secs, nsecs;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        PVStructurePtr pv = pvaGet(pvs[i], "field(value,alarm,timeStamp)", err,
+        /* Fetch the whole structure: a scalar/array/enum is still returned as a
+         * bare value (pvValueToMx), but a rich PV (NTNDArray, NTTable, custom
+         * group) comes back as the full nested struct -- so the result is
+         * complete (e.g. an image's dimension/codec are present). */
+        PVStructurePtr pv = pvaGet(pvs[i], "field()", err,
                                    /*useMonitorCache=*/!poll);
         if (err.err != PVA_OK) break;                 /* defer error to scope exit */
         vals.push_back(pvValueToMx(pv, type, err));

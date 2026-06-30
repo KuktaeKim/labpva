@@ -29,8 +29,11 @@ VERBS = {
      "vals       = pvaGet({pv1,pv2,...})     % cell of names -> N-by-1 result"],
     "For an NTScalar this returns the .value (drop-in for lcaGet); for an "
     "NTScalarArray the waveform; for an NTEnum the selected choice string (or "
-    "its index if a numeric type is requested). A non-NT structure comes back "
-    "as a struct. While a monitor is active on the channel the value is served "
+    "its index if a numeric type is requested). Anything richer -- an NTNDArray "
+    "image, an NTTable, a custom multi-field group, or any PV without a "
+    "top-level scalar/array value -- comes back as the whole nested struct (same "
+    "as pvaGetStructure), so you rarely need pvaGetStructure. While a monitor is "
+    "active on the channel the value is served "
     "from the monitor cache (no network round-trip); pass poll=true to force a "
     "fresh server read (equivalent to reading after pvaClear, but without "
     "dropping the monitor).",

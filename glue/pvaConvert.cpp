@@ -255,8 +255,15 @@ mxArray *pvValueToMx(const PVStructurePtr &pv, char typeReq, PvaError &err)
             }
             return mxCreateDoubleScalar((double)i);
         }
-        return pvFieldToMx(value, err);   /* some other structured value */
+        return pvStructureToMx(pv, err);  /* non-enum structured value -> whole tree */
     }
+
+    /* Only a plain scalar or scalar-array value is returned bare (labca-faithful
+     * -- the value you'd compute with). Anything richer -- a union (NTNDArray
+     * image), structureArray or unionArray -- is handed back as the whole nested
+     * structure, so pvaGet "just works" on rich PVs (like pvaGetStructure). */
+    if (t != scalar && t != scalarArray)
+        return pvStructureToMx(pv, err);
 
     /* 'C' forces string presentation of a scalar/array value. */
     if ((typeReq == 'C' || typeReq == 'c')) {
