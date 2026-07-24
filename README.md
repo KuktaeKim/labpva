@@ -65,17 +65,17 @@ addpath(fullfile(labpvaRoot,'doc'));                          % printpvs / print
 % SAME base you built against, e.g.
 % /usr/local/epics/R7.0.10/base/lib/linux-x86_64.
 
-v   = pvaGet('labpva:test:ao')            % NTScalar value (drop-in for lcaGet)
+v   = pvaGet('labpva:test:ao')            % NTScalar -> the value (drop-in for lcaGet)
 [v,ts] = pvaGet('labpva:test:ao')         % ts = sec + i*nsec
 wf  = pvaGet('labpva:test:wf')            % NTScalarArray -> row vector
 sel = pvaGet('labpva:test:enum')          % NTEnum -> selected choice string
-
-s   = pvaGetStructure('labpva:test:ao')   % the WHOLE structure as a nested struct
+s   = pvaGet('mdach:circle')              % structured/rich PV -> whole nested struct
 info = pvaInfo('labpva:test:ao')          % type id + field-tree dump (cf. pvinfo)
 
-pvaPut('labpva:test:ao', 1.25)            % waits for completion (cf. lcaPut)
+pvaPut('labpva:test:ao', 1.25)            % scalar write, waits for completion (cf. lcaPut)
 pvaPutNoWait('labpva:test:ao', 1.25)      % fire and forget
-pvaPutStructure('labpva:test:ao', s)      % write a whole structure back
+clear c; c.value.x = 1.5; c.value.y = -2; % set just these leaves of a structured PV
+pvaPutStructure('mdach:circle', c)        % writes value.x/value.y; other fields unchanged
 
 pvaSetMonitor('labpva:test:ao')           % subscribe ONCE, before the poll loop
 while ~pvaNewMonitorValue('labpva:test:ao'), pause(0.02); end
@@ -86,18 +86,31 @@ pvaClear()                                % drop all monitors
 pvaSetProvider('ca')   % fall back to Channel Access for v3-only names
 ```
 
-`pvaGet` returns a bare value for scalars/arrays/enums and the **whole nested
-struct** for richer PVs (NTNDArray images, NTTable, custom groups) — so for those
-you don't need `pvaGetStructure`. While a monitor is active, reads are served
-from its cache; pass a trailing `true` (`poll`) to force a fresh server read
-(e.g. `pvaGet(pv, true)`). Record DB fields not carried over pvAccess (`NELM`,
-`NORD`, `FTVL`, …) are read over Channel Access — `lcaGet('PV.NORD')`, or
-`pvaSetProvider('ca')` then `pvaGet('PV.NORD')`.
+### `pvaGet` vs `pvaGetStructure`
+
+There are two read verbs. Use **`pvaGet`** for almost everything:
+
+- For a **scalar / waveform / enum** it returns the **bare value** — a double, a
+  row vector, or the selected choice string — a drop-in for `lcaGet`.
+- For a **structured or rich** PV — an NTNDArray image, an NTTable, a custom
+  multi-field group, or any PV with no top-level scalar `value` — it returns the
+  **whole nested struct**. So for those you rarely need `pvaGetStructure`.
+
+**`pvaGetStructure`** *always* returns the entire PVStructure as a nested struct,
+**including for a scalar** (its `value` + `alarm` + `timeStamp` + `display`/…).
+Reach for it when you specifically want the full metadata tree of a scalar PV, or
+to scope the fetch with a `request` (e.g. `pvaGetStructure(pv,'field(value,alarm)')`).
+
+Both accept a trailing **`poll`** flag: while a monitor is active, reads are
+served from the monitor cache; `pvaGet(pv,true)` / `pvaGetStructure(pv,true)`
+force a fresh server read. Record DB fields **not** carried over pvAccess
+(`NELM`, `NORD`, `FTVL`, …) are read over Channel Access — `lcaGet('PV.NORD')`,
+or `pvaSetProvider('ca')` then `pvaGet('PV.NORD')`.
 
 ### Printing / monitoring a whole structure
 
 ```matlab
-s = pvaGetStructure('mdach:circle');
+s = pvaGet('mdach:circle');    % structured PV -> whole nested struct (smart pvaGet)
 printpvs(s,  'mdach:circle')   % EVERY leaf (value, alarm, display, control, ...)
 printvals(s, 'mdach:circle')   % only each signal's .value + timeStamp
 
@@ -105,19 +118,15 @@ printvals(s, 'mdach:circle')   % only each signal's .value + timeStamp
 pvaSetMonitor('mdach:circle', 'field()');         % 'field()' monitors the whole structure
 for k = 1:50
     if pvaNewMonitorValue('mdach:circle')
-        % served from the monitor cache by default (no network round-trip),
-        % because the monitor's 'field()' request covers the whole structure:
-        printvals(pvaGetStructure('mdach:circle'), 'mdach:circle')
+        % served from the monitor cache by default (no network round-trip):
+        printvals(pvaGet('mdach:circle'), 'mdach:circle')
     end
     pause(0.05);
 end
 pvaClear('mdach:circle');
 
-% pvaGetStructure is cache-served by default (like pvaGet) whenever a monitor is
-% active and its request covers the requested fields; otherwise it reads fresh.
-% Force a fresh server read with the trailing poll flag:
-s = pvaGetStructure('mdach:circle', true);                 % poll: bypass the cache
-s = pvaGetStructure('mdach:circle', 'field()', true);      % explicit request + poll
+% force a fresh server read (bypass the cache) with the trailing poll flag:
+s = pvaGet('mdach:circle', true);
 ```
 
 ### Getting help
@@ -149,6 +158,74 @@ clear labpvaRoot
 No `LD_LIBRARY_PATH` line is needed (the MEX `RPATH` finds the EPICS libs); if it
 ever is, it must be set in the shell *before* launching MATLAB, not in
 `startup.m`.
+
+## Functions
+
+Every verb accepts a single PV name **or a cell array of names** (returning an
+`N×1` column) unless noted. Timestamps are complex doubles (real = seconds past
+the UNIX epoch, imag = nanoseconds). `type` is a labca-style letter
+(`N B S L F D C`; `N` = native, `C` = string). `poll=true` forces a fresh server
+read past the monitor cache. `help <verb>` gives per-verb detail.
+
+**Read / write**
+
+| function | description |
+| --- | --- |
+| `pvaGet(pv [,type] [,poll])` | Read a channel: the `.value` for a scalar/array/enum, or the whole nested struct for a structured/rich PV. `[v,ts]=…` also returns the timestamp. |
+| `pvaGetStructure(pv [,request] [,poll])` | Always return the **entire** PVStructure as a nested struct (even a scalar's). `request` = pvRequest (default `field()`). |
+| `pvaPut(pv, value [,type])` | Write the `.value` field, **wait** for completion (drop-in for `lcaPut`). Enums accept a choice string or an index. |
+| `pvaPutNoWait(pv, value [,type])` | Write without waiting for completion. |
+| `pvaPutStructure(pv, s [,request])` | Write a whole structure from a MATLAB struct; only the fields present in `s` are written (others keep their value). |
+| `pvaInfo(pv)` | Introspect: struct with `.name`, `.typeid`, and a field-tree `.introspection` dump (cf. `pvinfo`). |
+
+**Monitors**
+
+| function | description |
+| --- | --- |
+| `pvaSetMonitor(pv [,request])` | Subscribe to value changes (call once, before the poll loop). |
+| `pvaNewMonitorValue(pv)` | Non-blocking: `true` once per newly arrived sample; drains the queue into the cache. |
+| `pvaNewMonitorWait(pv [,timeout])` | Block up to `timeout` s (0 = configured default) for the next sample; `false` on timeout. |
+| `pvaClear([pv])` | Tear down one monitor, or all if no name. The channel connection stays cached. |
+
+**Introspection (read-only)**
+
+| function | description |
+| --- | --- |
+| `pvaMonitors()` | Cell of PV names that currently have an active monitor. |
+| `pvaIsMonitored(pv)` | Logical: is a monitor active on the name? (non-destructive) |
+| `pvaChannels()` | Cell of PV names labpva has opened a channel for this session (a superset of `pvaMonitors`). |
+| `pvaIsConnected(pv)` | Logical: is that channel currently connected to its IOC? |
+
+**Metadata** (from NT sub-fields; return `NaN`/`''` when the field is absent)
+
+| function | description |
+| --- | --- |
+| `pvaGetStatus(pv)` | `[severity, status, ts]` from the NT `alarm` field. |
+| `pvaGetNelem(pv)` | Element count of `value` (1 for scalar/enum, array length otherwise). |
+| `pvaGetControlLimits(pv)` | `[lo, hi]` drive-range limits (`control.*`). |
+| `pvaGetGraphicLimits(pv)` | `[lo, hi]` display-range limits (`display.*`). |
+| `pvaGetAlarmLimits(pv)` | `[lo, hi]` alarm thresholds (`valueAlarm.*`). |
+| `pvaGetWarnLimits(pv)` | `[lo, hi]` warning thresholds (`valueAlarm.*`). |
+| `pvaGetUnits(pv)` | Engineering-units string (`display.units`). |
+| `pvaGetPrecision(pv)` | Display precision (`display.precision`). |
+| `pvaGetEnumStrings(pv)` | Cell of an NTEnum's choice strings. |
+
+**Configuration / diagnostics**
+
+| function | description |
+| --- | --- |
+| `pvaSetTimeout(sec)` / `pvaGetTimeout()` | Get/set the connect/IO timeout, in seconds. |
+| `pvaSetProvider(p)` / `pvaGetProvider()` | `'pva'` (default) or `'ca'` for subsequently-opened channels. |
+| `pvaDebugOn()` / `pvaDebugOff()` | Toggle pvaClient + labpva debug output. |
+| `pvaLastError()` | `[code, message]` of the last operation (`code` 0 = ok). |
+
+**MATLAB helpers** (in `doc/`, plain `.m` functions, not MEX)
+
+| function | description |
+| --- | --- |
+| `pvaGetImage(pv [,poll])` | NTNDArray → a display-ready 2-D (mono) / 3-D (color) image array; `[img,info]` also gives offset-aware axis vectors. Uncompressed + JPEG. |
+| `printpvs(s, name)` | Print **every** leaf of a fetched structure (value + all metadata). |
+| `printvals(s, name)` | Print only each signal's `.value` + a readable timestamp. |
 
 ## Smoke test
 

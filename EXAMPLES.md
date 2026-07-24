@@ -99,13 +99,15 @@ pvaClear('mdach:ao');
 
 ## 5. Reading a WHOLE structure, and printing just the values
 
-`pvaGetStructure` returns the entire PVStructure as a nested MATLAB struct. Use
-the bundled helpers to print it:
+For a structured PV, **`pvaGet` returns the whole nested struct** (smart
+`pvaGet` — see the README's "`pvaGet` vs `pvaGetStructure`" for the difference;
+use `pvaGetStructure` when you want the full struct of a *scalar*). Print it with
+the bundled helpers:
 - `printvals(s, name)` — just each signal's `.value` + a readable timestamp
 - `printpvs(s, name)`  — **every** leaf (value, alarm, timeStamp, display, control, …)
 
 ```matlab
-s = pvaGetStructure('mdach:circle');    % whole tree as a nested struct
+s = pvaGet('mdach:circle');             % structured PV -> whole nested struct
 s.value.x                               % normal dot access to any field
 
 printvals(s, 'mdach:circle');           % concise: values + timestamps only
@@ -118,38 +120,23 @@ pvaInfo('mdach:circle')                 % type id + raw (un-sanitised) field tre
 
 ## 6. Monitoring a structure — print values on each change
 
-`pvaGetStructure` is **cache-served by default** (like `pvaGet`) while a monitor
-is active *and* the monitor's request covers what you ask for. Subscribe with
-`'field()'` to monitor the whole structure, then print only the values:
+While a monitor is active, **`pvaGet` is cache-served** — it returns the last
+polled sample with no network round-trip. Subscribe with `'field()'`, poll, and
+print only the values:
 
 ```matlab
-pvaSetMonitor('mdach:circle', 'field()');       % 'field()' = monitor the whole structure
+pvaSetMonitor('mdach:circle', 'field()');       % monitor the whole structure
 tStart = tic;
 while toc(tStart) < 30
     if pvaNewMonitorWait('mdach:circle', 5)      % block up to 5 s for the next update
-        s = pvaGetStructure('mdach:circle');     % cache-served (monitor covers field())
-        printvals(s, 'mdach:circle');            % print just the values
+        printvals(pvaGet('mdach:circle'), 'mdach:circle');   % cache-served
     end
 end
 pvaClear('mdach:circle');
 ```
 
-Lighter alternative — monitor only what you print, and force a fresh read when
-you really want one:
-
-```matlab
-req = 'field(value,timeStamp)';                  % smaller updates from the IOC
-pvaSetMonitor('mdach:circle', req);
-for k = 1:200
-    if pvaNewMonitorValue('mdach:circle')
-        % match the request so the cache covers it (otherwise it reads fresh):
-        printvals(pvaGetStructure('mdach:circle', req), 'mdach:circle');
-    end
-    pause(0.05);
-end
-sFresh = pvaGetStructure('mdach:circle', true);  % poll=true: force a full fresh read
-pvaClear('mdach:circle');
-```
+Force a fresh server read regardless of the cache with the trailing poll flag:
+`pvaGet('mdach:circle', true)`.
 
 ---
 
@@ -180,7 +167,7 @@ s.value.y = -2.0;
 pvaPutStructure('mdach:circle', s);     % writes value.x / value.y; other fields unchanged
 
 % confirm:
-printvals(pvaGetStructure('mdach:circle', true), 'mdach:circle');   % poll=true for a fresh read
+printvals(pvaGet('mdach:circle', true), 'mdach:circle');   % poll=true for a fresh read
 ```
 
 Read–modify–write of the full tree also works (handy when you want to tweak a
@@ -188,7 +175,7 @@ value relative to the current one). Scope the put to `value` so you don't write
 back read-only metadata like `timeStamp`/`display`:
 
 ```matlab
-s = pvaGetStructure('mdach:circle', true);   % fetch fresh
+s = pvaGet('mdach:circle', true);            % fetch fresh (structured PV -> whole struct)
 s.value.x = s.value.x + 0.1;                 % nudge x
 pvaPutStructure('mdach:circle', s, 'field(value)');   % only the value sub-tree is written
 ```
@@ -205,7 +192,7 @@ pvaPut('mdach:circle', v);               % writes the .value sub-structure
 > Field-name note: PV field names that aren't legal MATLAB identifiers get
 > sanitised on the way out (e.g. non-alphanumerics → `_`); on write-back the
 > target structure's own field list is authoritative, so round-tripping a struct
-> you got from `pvaGetStructure` is name-safe. `pvaInfo` shows the originals.
+> you got from `pvaGet`/`pvaGetStructure` is name-safe. `pvaInfo` shows the originals.
 
 ---
 
