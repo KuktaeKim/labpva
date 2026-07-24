@@ -25,7 +25,7 @@ EPICS `configure/` layout (like labca): set the two external-product paths in
 [`configure/RELEASE`](configure/RELEASE) — `EPICS_BASE` and `MATLABDIR` — then:
 
 ```sh
-make            # builds glue objects, then one MEX per pva*.cpp
+make            # builds the glue lib, the 30 MEX, and the .m help stubs
 ```
 
 Site-tunable build knobs (C++ standard, the PVA library list, the OS/compiler
@@ -36,10 +36,12 @@ mechanical/derived settings are assembled in
 
 Products land in `bin/<EPICS_HOST_ARCH>/labpva/` (e.g.
 `bin/RL8-x86_64/labpva/pvaGet.mexa64`), mirroring labca's `bin/<arch>/labca/`
-layout. Alongside the 26 MEX you'll also find **`libmpvaglue.so`** — the shared
+layout. Alongside the 30 MEX you'll also find **`libmpvaglue.so`** — the shared
 glue library that holds the one-per-process channel/monitor registry; every MEX
 links against it (see [ARCHITECTURE.md](ARCHITECTURE.md) §6). After rebuilding,
-`clear mex` (or restart) in any open MATLAB session to load the new binaries.
+**restart MATLAB** to load the new binaries — labpva calls `mexLock` (so the
+EPICS libraries aren't unloaded mid-teardown, which would segfault on exit), and
+that means `clear mex` will *not* reload it.
 
 Defaults target the ALS controls host this was developed on: EPICS
 `/usr/local/epics/R7.0.10/base`, MATLAB R2025b. Following the EPICS standard,
@@ -51,15 +53,17 @@ by `mex` (not the EPICS O.<arch>/PROD machinery) — see the comment in
 ## Run (in MATLAB)
 
 ```matlab
-% Use YOUR built arch (RL8-x86_64 on the ALS controls host; linux-x86_64
-% elsewhere). Do NOT name this variable `labpva` -- a workspace variable
-% shadows `help labpva` (MATLAB resolves variables before folders).
+% Use YOUR built arch. Both RL8-x86_64 and linux-x86_64 are built here
+% (the default build arch is linux-x86_64). Do NOT name this variable `labpva`
+% -- a workspace variable shadows `help labpva` (MATLAB resolves variables
+% before folders).
 labpvaRoot = '/path/to/labpva';
-addpath(fullfile(labpvaRoot,'bin','RL8-x86_64','labpva'));  % MEX + help stubs + libmpvaglue.so
-addpath(fullfile(labpvaRoot,'doc'));                        % printpvs / printvals
-% so the loader finds the EPICS shared libs at runtime (rpath is also set):
-setenv('LD_LIBRARY_PATH', ['/usr/local/epics/R7.0.7/base/lib/RL8-x86_64:' ...
-                           getenv('LD_LIBRARY_PATH')])
+addpath(fullfile(labpvaRoot,'bin','linux-x86_64','labpva'));  % MEX + help stubs + libmpvaglue.so
+addpath(fullfile(labpvaRoot,'doc'));                          % printpvs / printvals
+% No LD_LIBRARY_PATH needed: the MEX carry an RPATH to the EPICS libs. If you
+% ever must set it, do so in the shell BEFORE launching MATLAB, pointing at the
+% SAME base you built against, e.g.
+% /usr/local/epics/R7.0.10/base/lib/linux-x86_64.
 
 v   = pvaGet('labpva:test:ao')            % NTScalar value (drop-in for lcaGet)
 [v,ts] = pvaGet('labpva:test:ao')         % ts = sec + i*nsec
@@ -81,6 +85,14 @@ pvaClear()                                % drop all monitors
 
 pvaSetProvider('ca')   % fall back to Channel Access for v3-only names
 ```
+
+`pvaGet` returns a bare value for scalars/arrays/enums and the **whole nested
+struct** for richer PVs (NTNDArray images, NTTable, custom groups) — so for those
+you don't need `pvaGetStructure`. While a monitor is active, reads are served
+from its cache; pass a trailing `true` (`poll`) to force a fresh server read
+(e.g. `pvaGet(pv, true)`). Record DB fields not carried over pvAccess (`NELM`,
+`NORD`, `FTVL`, …) are read over Channel Access — `lcaGet('PV.NORD')`, or
+`pvaSetProvider('ca')` then `pvaGet('PV.NORD')`.
 
 ### Printing / monitoring a whole structure
 
@@ -117,9 +129,9 @@ by `doc/gen_help_stubs.py`). Caveat: if `help labpva` prints
 "labpva is a variable…", you named your path variable `labpva`/`LABPVA`;
 `clear` it (a workspace variable shadows the folder).
 
-After **rebuilding** the MEX, run `clear mex` in any open MATLAB session (or
-restart) so the cached old MEX are dropped and the new ones + `libmpvaglue.so`
-load.
+After **rebuilding** the MEX, **restart MATLAB** so the new binaries load.
+labpva `mexLock`s itself (so the EPICS libraries stay mapped and MATLAB doesn't
+segfault on exit), which means `clear mex` will *not* unload or reload it.
 
 ### Auto-load at every launch
 
@@ -151,14 +163,17 @@ then drive it from MATLAB with the calls above.
 
 ## Status
 
-All 26 MEX and the glue layer build cleanly against EPICS 7.0.7 and MATLAB
-R2023b, and labpva is **verified working live (2026-06-11)** against a softIocPVA
-(`mdach:circle`): reads, `pvaGetStructure`, monitors (`pvaSetMonitor` →
-`pvaNewMonitorValue` → cache-served read), the metadata getters, NTEnum reads,
-and the `help` system all confirmed. The bring-up fixed a build bug where
-process-global state (monitor registry, provider, timeout) was duplicated per
-MEX, and a code review fixed monitor-cache leakage into metadata reads plus
-smaller correctness issues — see [CHANGELOG.md](CHANGELOG.md). **Not yet
-exercised live:** the write path (`pvaPut`/`pvaPutNoWait`/`pvaPutStructure`) and
-array/string round-trips. Known limitations/follow-ups are at the end of
-[ARCHITECTURE.md](ARCHITECTURE.md).
+The 30 MEX and the glue layer build cleanly against **EPICS 7.0.10** and **MATLAB
+R2025b** (a sibling copy targets R2026a), for both `RL8-x86_64` and
+`linux-x86_64`. labpva is **verified working live** against ALS IOCs: reads
+(`pvaGet`/`pvaGetStructure`), monitors (`pvaSetMonitor` → `pvaNewMonitorValue` →
+cache-served read), the metadata getters, NTEnum reads, custom Q:group
+structures and areaDetector NTNDArray images, and the `help` system.
+
+Since the first bring-up (2026-06-11, against a `mdach:circle` softIocPVA), the
+build moved to the standard EPICS `configure/` layout; `pvaGet`/`pvaGetStructure`
+gained monitor-cache-by-default plus a `poll` flag; `pvaGet` became "smart" (bare
+value for scalar/array/enum, whole struct for rich PVs); and a `mexLock` fix
+removed a segfault on MATLAB exit. See [CHANGELOG.md](CHANGELOG.md). **Not yet
+exercised live:** the write path (`pvaPut`/`pvaPutNoWait`/`pvaPutStructure`).
+Known limitations/follow-ups are at the end of [ARCHITECTURE.md](ARCHITECTURE.md).

@@ -130,6 +130,37 @@ VERBS = {
     "read instead of a cached monitored value.",
     "pvaSetMonitor, pvaGet"),
 
+"pvaMonitors": (
+    "List the PV names that currently have an active monitor.",
+    ["names = pvaMonitors()                  % N-by-1 cell of char (empty if none)"],
+    "Read-only view of labpva's monitor registry (channels set with pvaSetMonitor "
+    "and not yet pvaClear'd). No side effects.",
+    "pvaIsMonitored, pvaSetMonitor, pvaClear"),
+
+"pvaIsMonitored": (
+    "Is a monitor currently active on a channel?",
+    ["tf = pvaIsMonitored(pvName)             % logical",
+     "tf = pvaIsMonitored({pv1,...})          % N-by-1 logical column"],
+    "Read-only and NON-destructive (unlike pvaNewMonitorValue it does not consume "
+    "the new-value flag). True iff pvaSetMonitor is active on the name.",
+    "pvaMonitors, pvaSetMonitor, pvaNewMonitorValue"),
+
+"pvaChannels": (
+    "List the PV names labpva has opened a channel for.",
+    ["names = pvaChannels()                  % N-by-1 cell of char (empty if none)"],
+    "Channels connected this session (any PV touched by pvaGet/pvaPut/"
+    "pvaSetMonitor; the connection persists and is reused). Superset of "
+    "pvaMonitors. Read-only. Use pvaIsConnected for live state.",
+    "pvaIsConnected, pvaMonitors, pvaGet"),
+
+"pvaIsConnected": (
+    "Is a channel currently connected to its IOC?",
+    ["tf = pvaIsConnected(pvName)             % logical",
+     "tf = pvaIsConnected({pv1,...})          % N-by-1 logical column"],
+    "Live connection state of a channel labpva already opened. False if never "
+    "opened -- does NOT open a new channel to check (no accidental connect).",
+    "pvaChannels, pvaGet, pvaIsMonitored"),
+
 "pvaGetStatus": (
     "Read alarm severity/status (and timestamp) of channels.",
     ["[sev, sta]      = pvaGetStatus(pvName[s])",

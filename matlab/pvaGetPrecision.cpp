@@ -15,7 +15,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     std::vector<double> prec;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        epics::pvData::PVStructurePtr pv = pvaGet(pvs[i], "field()", err);
+        epics::pvData::PVStructurePtr pv = pvaGet(pvs[i], "field(display)", err);
         if (err.err != PVA_OK) break;
         prec.push_back(getDoubleField(pv, "display.precision", 0.0));
     }

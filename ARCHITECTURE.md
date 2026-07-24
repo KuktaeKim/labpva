@@ -167,6 +167,10 @@ distinguish "numeric" from "string"; `C` forces string presentation.)
 | `pvaNewMonitorValue`           | `lcaNewMonitorValue`    | `tf = pvaNewMonitorValue(pv[s])`                       |
 | `pvaNewMonitorWait`            | `lcaNewMonitorWait`     | `[tf] = pvaNewMonitorWait(pv[s] [,timeout])`           |
 | `pvaClear`                     | `lcaClear`              | `pvaClear([pv[s]])`                                    |
+| `pvaMonitors`                  | — (new)                 | `names = pvaMonitors()`                                |
+| `pvaIsMonitored`               | — (new)                 | `tf = pvaIsMonitored(pv[s])`                           |
+| `pvaChannels`                  | — (new)                 | `names = pvaChannels()`                                |
+| `pvaIsConnected`               | — (new)                 | `tf = pvaIsConnected(pv[s])`                           |
 | `pvaGetStatus`                 | `lcaGetStatus`          | `[sev,sta,ts] = pvaGetStatus(pv[s])`                   |
 | `pvaGetNelem`                  | `lcaGetNelem`           | `n = pvaGetNelem(pv[s])`                               |
 | `pvaGetControlLimits`          | `lcaGetControlLimits`   | `[lo,hi] = pvaGetControlLimits(pv[s])`                 |
@@ -190,7 +194,8 @@ labca verbs intentionally **not** carried over: `lcaSetRetryCount`/
 `lcaGetRetryCount` (CA-specific retry model; PVA reconnects internally),
 `lcaSetSeverityWarnLevel` (CA console-warning knob), `lcaDelay` (use MATLAB
 `pause`). New verbs with no labca analogue: `pvaGetStructure`, `pvaPutStructure`,
-`pvaInfo`, `pvaSetProvider`/`pvaGetProvider`.
+`pvaInfo`, `pvaSetProvider`/`pvaGetProvider`, `pvaMonitors`, `pvaIsMonitored`,
+`pvaChannels`, `pvaIsConnected`.
 
 ## 6. Process-global state, the shared glue library, and connection caching
 

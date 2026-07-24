@@ -38,15 +38,51 @@ static PvaClientPtr client()
     return g_client;
 }
 
+/* ---- channel registry ----------------------------------------------- */
+
+/* Every channel labpva opens is recorded here (name -> the connected
+ * PvaClientChannel) so pvaChannels can list them and pvaIsConnected can query
+ * live state without opening a new channel. Separate from pvaClient's own
+ * channel cache, which is not enumerable. */
+static std::map<std::string, PvaClientChannelPtr> g_channels;
+
+/* Open (or reuse) the channel for `name` and remember it. Throws on connect
+ * failure, so only successfully-connected channels are recorded. */
+static PvaClientChannelPtr openChannel(const std::string &name)
+{
+    PvaClientChannelPtr ch = client()->channel(name, g_provider, g_timeout);
+    g_channels[name] = ch;
+    return ch;
+}
+
+std::vector<std::string> pvaChannelNames()
+{
+    std::vector<std::string> out;
+    out.reserve(g_channels.size());
+    for (std::map<std::string, PvaClientChannelPtr>::const_iterator it = g_channels.begin();
+         it != g_channels.end(); ++it)
+        out.push_back(it->first);
+    return out;
+}
+
+bool pvaChannelConnected(const std::string &name)
+{
+    std::map<std::string, PvaClientChannelPtr>::iterator it = g_channels.find(name);
+    if (it == g_channels.end() || !it->second) return false;
+    try {
+        epics::pvAccess::Channel::shared_pointer ch = it->second->getChannel();
+        return ch && ch->getConnectionState() == epics::pvAccess::Channel::CONNECTED;
+    } catch (std::exception &) {
+        return false;
+    }
+}
+
 /* ---- monitor registry ----------------------------------------------- */
 
 struct MonEntry {
     PvaClientMonitorPtr mon;
     PVStructurePtr      latest;   /* private deep copy of most recent value */
     std::string         request;  /* the pvRequest this monitor subscribed with */
-    bool                unseen;   /* true if a value arrived but pvaNewMonitorValue
-                                     has not yet reported it                */
-    MonEntry() : unseen(false) {}
 };
 
 static std::map<std::string, MonEntry> g_monitors;
@@ -100,7 +136,7 @@ PVStructurePtr pvaGet(const std::string &name, const std::string &request, PvaEr
     }
 
     try {
-        PvaClientChannelPtr ch = client()->channel(name, g_provider, g_timeout);
+        PvaClientChannelPtr ch = openChannel(name);
         PvaClientGetPtr g = ch->get(request);
         g->get();
         return deepCopy(g->getData()->getPVStructure());
@@ -115,7 +151,7 @@ PVStructurePtr pvaGet(const std::string &name, const std::string &request, PvaEr
 PvaClientPutPtr pvaPutPrepare(const std::string &name, const std::string &request, PvaError &err)
 {
     try {
-        PvaClientChannelPtr ch = client()->channel(name, g_provider, g_timeout);
+        PvaClientChannelPtr ch = openChannel(name);
         return ch->put(request);          /* connects and fetches current value */
     } catch (std::exception &e) {
         err.err = PVA_NOTCONNECTED;
@@ -153,7 +189,7 @@ void pvaPutCommit(const PvaClientPutPtr &put, std::size_t changedFieldOffset,
 void pvaMonitorSet(const std::string &name, const std::string &request, PvaError &err)
 {
     try {
-        PvaClientChannelPtr ch = client()->channel(name, g_provider, g_timeout);
+        PvaClientChannelPtr ch = openChannel(name);
         /* Tear down any existing monitor on this name before re-subscribing,
          * so we don't leave the previous server-side subscription running. */
         std::map<std::string, MonEntry>::iterator old = g_monitors.find(name);
@@ -195,10 +231,7 @@ bool pvaMonitorPoll(const std::string &name, PvaError &err)
         pvaSetLastError(err.err, err.msg);
         return false;
     }
-    if (got) e.unseen = true;
-    bool r = e.unseen;
-    e.unseen = false;
-    return r;
+    return got;   /* true iff a new sample arrived on this call */
 }
 
 bool pvaMonitorWait(const std::string &name, double timeout, PvaError &err)
@@ -215,7 +248,6 @@ bool pvaMonitorWait(const std::string &name, double timeout, PvaError &err)
         if (!e.mon->waitEvent(t)) return false;   /* timed out */
         e.latest = deepCopy(e.mon->getData()->getPVStructure());
         e.mon->releaseEvent();
-        e.unseen = false;                          /* consumed by the wait */
         return true;
     } catch (std::exception &ex) {
         err.err = PVA_FAILURE;
@@ -234,6 +266,16 @@ PVStructurePtr pvaMonitorLatest(const std::string &name)
 bool pvaMonitorActive(const std::string &name)
 {
     return g_monitors.find(name) != g_monitors.end();
+}
+
+std::vector<std::string> pvaMonitorNames()
+{
+    std::vector<std::string> out;
+    out.reserve(g_monitors.size());
+    for (std::map<std::string, MonEntry>::const_iterator it = g_monitors.begin();
+         it != g_monitors.end(); ++it)
+        out.push_back(it->first);
+    return out;
 }
 
 void pvaClear(const std::string &name)

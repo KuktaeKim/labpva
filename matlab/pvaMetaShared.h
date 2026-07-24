@@ -42,9 +42,18 @@ static inline void limitPairMex(int nlhs, mxArray *plhs[], int nrhs, const mxArr
     std::vector<std::string> pvs = buildPVs(prhs[0], wasCell, err);
     errCheck(err);
 
+    /* Fetch only the sub-structure we read (loPath/hiPath share a top field,
+     * e.g. "control"), so a large PV (an NTNDArray image) is not pulled whole
+     * just for two scalars. */
+    std::string lp = loPath;
+    size_t dot = lp.find('.');
+    std::string request = (dot == std::string::npos)
+                          ? std::string("field()")
+                          : ("field(" + lp.substr(0, dot) + ")");
+
     std::vector<double> lo, hi;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        epics::pvData::PVStructurePtr pv = pvaGet(pvs[i], "field()", err);
+        epics::pvData::PVStructurePtr pv = pvaGet(pvs[i], request, err);
         if (err.err != PVA_OK) break;
         lo.push_back(getDoubleField(pv, loPath, mxGetNaN()));
         hi.push_back(getDoubleField(pv, hiPath, mxGetNaN()));

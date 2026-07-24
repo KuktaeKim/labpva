@@ -17,6 +17,7 @@
 #include "pvaError.h"
 #include <pv/pvaClient.h>
 #include <string>
+#include <vector>
 
 namespace labpva {
 
@@ -86,6 +87,16 @@ bool pvaMonitorWait(const std::string &name, double timeout, PvaError &err);
 epics::pvData::PVStructurePtr pvaMonitorLatest(const std::string &name);
 
 bool pvaMonitorActive(const std::string &name);
+
+/* Names of all channels with an active monitor (backs the pvaMonitors verb). */
+std::vector<std::string> pvaMonitorNames();
+
+/* Names of all channels labpva has opened this session (backs pvaChannels). */
+std::vector<std::string> pvaChannelNames();
+
+/* Is the (previously opened) channel for `name` currently connected? False if
+ * labpva never opened it -- does NOT open a new channel just to check. */
+bool pvaChannelConnected(const std::string &name);
 
 /* Clear one channel's monitor (stop it + drop it from the registry), or
  * (empty name) clear all monitors. The underlying pvaClient channel stays in

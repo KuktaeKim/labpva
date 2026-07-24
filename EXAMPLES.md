@@ -11,8 +11,8 @@ including writing a PV that is a structure.
 > NTEnum, `mdach:wf` for a waveform.
 >
 > Assumes labpva is on the MATLAB path (see README / `startup.m`) so the `pva*`
-> verbs and the `printvals` / `printpvs` helpers resolve. After a rebuild, run
-> `clear mex` first.
+> verbs and the `printvals` / `printpvs` helpers resolve. After a rebuild,
+> **restart MATLAB** (labpva `mexLock`s itself, so `clear mex` won't reload it).
 
 ---
 
@@ -209,7 +209,35 @@ pvaPut('mdach:circle', v);               % writes the .value sub-structure
 
 ---
 
-## 9. Cleanup
+## 9. Images (NTNDArray) — pvaGetImage
+
+`pvaGet('IMG')` on an areaDetector image returns the whole NTNDArray struct (flat
+pixels + dimension + codec). The `pvaGetImage` helper (in `doc/`) reshapes it into
+a ready-to-display MATLAB image — mono `[ny nx]` or color `[ny nx 3]` — and also
+decodes the JPEG codec.
+
+```matlab
+% simple display (axes = pixel index 1..N):
+img = pvaGetImage('BL31b:Pva1:Image');
+figure; imagesc(img); axis image; colormap(gray)
+
+% positioned at the ROI's real full-sensor coordinates -- use the [img, info]
+% two-output form; info.x / info.y carry the dimension offset:
+[img, info] = pvaGetImage('BL31b:Pva1:Image');
+figure; imagesc(info.x, info.y, img); axis image; colormap(gray); colorbar
+xlabel('x (sensor pixels)'); ylabel('y (sensor pixels)')
+% the axes now span offset .. offset+size for each dimension
+
+% force a fresh frame (bypass the monitor cache) and read the metadata:
+[img, info] = pvaGetImage('BL31b:Pva1:Image', true);   % poll=true
+info            % .dims .offset .x .y .colorMode .codec .uniqueId .timeStamp
+```
+
+Uncompressed and JPEG images are supported. Lossless codecs (`blosc`/`lz4`/
+`bslz4`) raise an error — decompress in the IOC (`NDPluginCodec` in decompress
+mode), or add a native decode MEX.
+
+## 10. Cleanup
 
 ```matlab
 pvaClear('mdach:ao');     % drop one monitor (channel/connection stays cached)
@@ -218,5 +246,3 @@ pvaClear();               % drop ALL monitors
 
 After a monitor is cleared, `pvaGet` / `pvaGetStructure` on that name read fresh
 from the server again (there is no cache to serve).
-```
-```

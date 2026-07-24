@@ -29,6 +29,7 @@ SRCS = \
 	pvaPut.cpp pvaPutNoWait.cpp pvaPutStructure.cpp \
 	pvaInfo.cpp \
 	pvaSetMonitor.cpp pvaNewMonitorValue.cpp pvaNewMonitorWait.cpp pvaClear.cpp \
+	pvaMonitors.cpp pvaIsMonitored.cpp pvaChannels.cpp pvaIsConnected.cpp \
 	pvaSetTimeout.cpp pvaGetTimeout.cpp pvaSetProvider.cpp pvaGetProvider.cpp \
 	pvaDebugOn.cpp pvaDebugOff.cpp pvaLastError.cpp \
 	pvaGetStatus.cpp pvaGetNelem.cpp \

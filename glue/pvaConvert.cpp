@@ -467,7 +467,18 @@ std::string mxToPvValue(const mxArray *mx, const PVStructurePtr &pv, char typeRe
                     err.msg = "enum string not among choices";
                     return "";
                 }
-                if (idx) { idx->put((int32)mxGetScalar(mx)); return "value"; }
+                if (idx) {
+                    int32 i = (int32)mxGetScalar(mx);
+                    PVStringArrayPtr ch = vs->getSubField<PVStringArray>("choices");
+                    size_t nch = ch ? ch->view().size() : 0;
+                    if (nch > 0 && (i < 0 || (size_t)i >= nch)) {
+                        err.err = PVA_INVALIDARG;
+                        err.msg = "enum index out of range";
+                        return "";
+                    }
+                    idx->put(i);
+                    return "value";
+                }
             }
         }
         mxToPvField(mx, value, err);
