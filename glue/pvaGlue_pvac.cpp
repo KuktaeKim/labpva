@@ -1,4 +1,6 @@
-/* pvaGlue.cpp - see pvaGlue.h */
+/* pvaGlue_pvac.cpp - see pvaGlue.h. Classic-backend implementation
+ * (pvaClient / pvAccessCPP / pvDataCPP). The PVXS implementation of the same
+ * interface is pvaGlue_pvxs.cpp; the Makefile picks one via LABPVA_BACKEND. */
 #include "pvaGlue.h"
 
 #include <pv/pvData.h>
@@ -19,7 +21,7 @@ static std::string g_provider = "pva";   /* per-channel provider token   */
 static double      g_timeout  = 5.0;
 static bool        g_debug    = false;
 
-void        pvaSetProvider(const std::string &p) { g_provider = p.empty() ? "pva" : p; }
+bool        pvaSetProvider(const std::string &p) { g_provider = p.empty() ? "pva" : p; return true; }
 std::string pvaGetProvider()                      { return g_provider; }
 void        pvaSetTimeout(double s)               { if (s > 0) g_timeout = s; }
 double      pvaGetTimeout()                       { return g_timeout; }
@@ -117,8 +119,8 @@ static PVStructurePtr deepCopy(const PVStructurePtr &src)
 
 /* ---- core operations ------------------------------------------------- */
 
-PVStructurePtr pvaGet(const std::string &name, const std::string &request, PvaError &err,
-                      bool useMonitorCache, bool requireWholeMonitor)
+PvValue pvaGet(const std::string &name, const std::string &request, PvaError &err,
+               bool useMonitorCache, bool requireWholeMonitor)
 {
     /* ezca-style serving: if a monitor is active on `name`, return its cached
      * value with no network round-trip (a read right after a positive
@@ -257,7 +259,7 @@ bool pvaMonitorWait(const std::string &name, double timeout, PvaError &err)
     }
 }
 
-PVStructurePtr pvaMonitorLatest(const std::string &name)
+PvValue pvaMonitorLatest(const std::string &name)
 {
     std::map<std::string, MonEntry>::iterator it = g_monitors.find(name);
     return it == g_monitors.end() ? PVStructurePtr() : it->second.latest;

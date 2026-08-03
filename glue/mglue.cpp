@@ -1,8 +1,6 @@
 /* mglue.cpp - see mglue.h */
 #include "mglue.h"
 
-using namespace epics::pvData;
-
 namespace labpva {
 
 void lockMexFile()
@@ -122,22 +120,6 @@ mxArray *complexColumn(const std::vector<double> &re, const std::vector<double> 
     for (size_t i = 0; i < n; ++i) { pr[i] = re[i]; pi[i] = im[i]; }
 #endif
     return m;
-}
-
-double getDoubleField(const PVStructurePtr &pv, const std::string &path, double dflt)
-{
-    if (!pv) return dflt;
-    PVFieldPtr f = pv->getSubField(path);
-    if (!f || f->getField()->getType() != scalar) return dflt;
-    return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<double>();
-}
-
-std::string getStringField(const PVStructurePtr &pv, const std::string &path)
-{
-    if (!pv) return "";
-    PVFieldPtr f = pv->getSubField(path);
-    if (!f || f->getField()->getType() != scalar) return "";
-    return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<std::string>();
 }
 
 } // namespace labpva

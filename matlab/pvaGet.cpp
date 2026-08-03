@@ -24,7 +24,6 @@
 #include "pvaConvert.h"
 
 using namespace labpva;
-using namespace epics::pvData;
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
@@ -56,8 +55,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
          * bare value (pvValueToMx), but a rich PV (NTNDArray, NTTable, custom
          * group) comes back as the full nested struct -- so the result is
          * complete (e.g. an image's dimension/codec are present). */
-        PVStructurePtr pv = pvaGet(pvs[i], "field()", err,
-                                   /*useMonitorCache=*/!poll);
+        PvValue pv = pvaGet(pvs[i], "field()", err,
+                            /*useMonitorCache=*/!poll);
         if (err.err != PVA_OK) break;                 /* defer error to scope exit */
         vals.push_back(pvValueToMx(pv, type, err));
         if (wantTs) {

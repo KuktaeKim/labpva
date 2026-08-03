@@ -50,6 +50,37 @@ Defaults target the ALS controls host this was developed on: EPICS
 by `mex` (not the EPICS O.<arch>/PROD machinery) — see the comment in
 `configure/CONFIG`.
 
+### Client backend: classic pvAccessCPP (default) or PVXS
+
+The glue layer can be built against either implementation of the pvAccess
+protocol, selected in [`configure/RELEASE`](configure/RELEASE):
+
+- **classic** (default, `PVXS` left commented out) — pvaClient / pvAccessCPP /
+  pvDataCPP from EPICS base. This is the fully working stack.
+- **PVXS** — define `PVXS = /path/to/built/pvxs` (a built pvxs source tree,
+  compiled against the *same* `EPICS_BASE`); the build then compiles the
+  backend sources `glue/pva{Glue,Convert}_pvxs.cpp`, links `-lpvxs`, and
+  defines `LABPVA_USE_PVXS`.
+
+The MATLAB API is identical either way — the backend split lives entirely in
+`glue/pvaGlue_<backend>.cpp` / `glue/pvaConvert_<backend>.cpp` behind the
+neutral `labpva::PvValue` type (`glue/pvaBackend.h`); the 30 MEX entry points
+are backend-agnostic.
+
+**PVXS port status: complete.** Reads (`pvaGet`/`pvaGetStructure`/`pvaInfo` +
+all metadata getters), **writes** (`pvaPut`/`pvaPutNoWait`/`pvaPutStructure` —
+scalars, strings, enums by choice string or bounds-checked index, waveforms,
+whole structures) and **monitors** (`pvaSetMonitor` → `pvaNewMonitorValue`/
+`pvaNewMonitorWait` → cache-served reads, `pvaClear`) all work over libpvxs,
+verified live against a softIocPVA. Remaining caveats: PVXS has **no Channel
+Access provider** (`pvaSetProvider('ca')` errors — use labca for `record.FIELD`
+reads); subscribing to a nonexistent PV does not error at `pvaSetMonitor`
+(pvxs subscriptions are asynchronous — the poll simply never reports a
+sample); and against a QSRV1 IOC scoped requests (`field(display)`, …) are not
+honoured — the full structure is transferred (correct, just not the bandwidth
+saving; QSRV2 servers do subset). `doc/pvaBenchmark.m` times the read verbs
+for backend A/B comparison.
+
 ## Run (in MATLAB)
 
 ```matlab

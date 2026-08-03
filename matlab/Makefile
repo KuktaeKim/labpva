@@ -13,14 +13,15 @@ include $(TOP)/configure/CONFIG
 
 BINDIR = $(TOP)/bin/$(EPICS_HOST_ARCH)/labpva
 
-# The stateful glue (pvaGlue.o, pvaError.o) lives in $(BINDIR)/libmpvaglue.so so
-# all MEX share one copy of the monitor registry / provider / timeout / last-
+# The stateful glue (pvaGlue_*.o, pvaError.o) lives in $(BINDIR)/libmpvaglue.so
+# so all MEX share one copy of the monitor registry / provider / timeout / last-
 # error state. Only the stateless mx* helpers are linked statically per-MEX.
-GLUE_OBJS = $(TOP)/glue/pvaConvert.o $(TOP)/glue/mglue.o
+# The marshalling object is backend-specific (LABPVA_BACKEND from configure/).
+GLUE_OBJS = $(TOP)/glue/pvaConvert_$(LABPVA_BACKEND).o $(TOP)/glue/mglue.o
 
-# Resolve libmpvaglue.so at runtime from the MEX's own bin dir. Extend the
-# CONFIG default rather than replace it (keep the EPICS_LIB rpath).
-MEX_LDFLAGS = LDFLAGS='$$LDFLAGS -Wl,-rpath,$(EPICS_LIB) -Wl,-rpath,$(abspath $(BINDIR))'
+# Resolve libmpvaglue.so at runtime from the MEX's own bin dir, on top of the
+# backend rpaths assembled in configure/CONFIG.
+MEX_LDFLAGS = LDFLAGS='$$LDFLAGS $(PVA_RPATH) -Wl,-rpath,$(abspath $(BINDIR))'
 
 # Every MEX entry point. (pvaPutShared.h / pvaMetaShared.h are headers, not
 # entry points, so they are intentionally not listed.)
@@ -44,9 +45,9 @@ all build install: $(MEXFILES)
 
 $(BINDIR)/%.$(MEXEXT): %.cpp $(GLUE_OBJS)
 	@mkdir -p $(BINDIR)
-	$(MEX) $< $(GLUE_OBJS) -I. -I$(TOP)/glue $(EPICS_INCLUDES) \
+	$(MEX) $< $(GLUE_OBJS) -I. -I$(TOP)/glue $(EPICS_INCLUDES) $(BACKEND_CPPFLAGS) \
 		$(MEX_CXXFLAGS) \
-		-L$(EPICS_LIB) $(PVA_LIBS) -L$(BINDIR) -lmpvaglue $(MEX_LDFLAGS) \
+		$(PVA_LIBDIRS) $(PVA_LIBS) -L$(BINDIR) -lmpvaglue $(MEX_LDFLAGS) \
 		-output $(BINDIR)/$*
 
 clean:

@@ -11,6 +11,7 @@
 
 #include "mglue.h"
 #include "pvaGlue.h"
+#include "pvaConvert.h"   /* getDoubleField/getStringField + PvValue */
 
 namespace labpva {
 
@@ -53,7 +54,7 @@ static inline void limitPairMex(int nlhs, mxArray *plhs[], int nrhs, const mxArr
 
     std::vector<double> lo, hi;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        epics::pvData::PVStructurePtr pv = pvaGet(pvs[i], request, err);
+        PvValue pv = pvaGet(pvs[i], request, err);
         if (err.err != PVA_OK) break;
         lo.push_back(getDoubleField(pv, loPath, mxGetNaN()));
         hi.push_back(getDoubleField(pv, hiPath, mxGetNaN()));

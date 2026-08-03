@@ -23,6 +23,15 @@ EPICS_BASE = /usr/local/epics/R7.0.10/base
 MATLABDIR = /remote/hpcs-sw/RHEL-8.x86_64/modules/matlab/2025b
 
 ##########################################
+# OPTIONAL: build labpva's client layer on PVXS (QSRV2-era pvAccess library)
+# instead of the classic pvaClient/pvAccessCPP stack. Point at a BUILT pvxs
+# source tree (containing include/pvxs/ and lib/<arch>/libpvxs.so) that was
+# built against the SAME EPICS_BASE as above. Leave commented out for the
+# classic stack. NOTE: the PVXS backend has no Channel Access provider, so
+# pvaSetProvider('ca') is unavailable (use labca for record.FIELD reads).
+PVXS = /remote/als-sw/epics/R7.0.10/extensions/src/pvxs
+
+##########################################
 # Optional overrides (win over the defaults above).
 -include $(TOP)/RELEASE_SITE
 -include $(TOP)/configure/RELEASE.local

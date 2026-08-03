@@ -1,5 +1,83 @@
 # labpva changelog
 
+## 2026-07-31 — PVXS backend complete: puts + monitors (Phases 3-4)
+
+The PVXS backend now implements the full verb set; a `PVXS=...` build is
+functionally equivalent to the classic one except for the documented
+`pvaSetProvider('ca')` limitation. Verified live against a softIocPVA with the
+MATLAB-free harness (27/27 checks): scalar/string/waveform puts, enum puts by
+choice string and by bounds-checked index (bad index/string rejected),
+pvaPutNoWait, pvaPutStructure (only fields present in the struct are written;
+an optional `field(a,b)` request scopes by top-level field via unmark), and the
+whole monitor lifecycle (set → initial snapshot event → quiet poll/wait →
+event after a put → cache-served pvaGet → clear; NOMONITOR error preserved).
+
+Design notes:
+- Puts pre-build the argument Value on the MATLAB thread (`mxToPutArg` /
+  `mxToPutArgStructure` in pvaConvert_pvxs.cpp): a fresh get supplies the
+  server type (and enum choices), the argument starts as `cloneEmpty()` and
+  assignment marks exactly the written fields — pvxs sends only marked fields.
+  The PutBuilder callback (a pvxs worker thread) only returns the pre-built
+  Value; it never touches MATLAB memory.
+- pvaPutNoWait parks its Operation handle (dropping it would cancel the put)
+  in a registry; a result callback records completion and the handle is reaped
+  later on the MATLAB thread.
+- Monitors use client::Subscription with connection events masked; the FIFO
+  not-empty callback only signals an epicsEvent (pvaNewMonitorWait waits on
+  it with a deadline). Same drain-keep-latest cache semantics as pvac. NOTE:
+  subscribing is asynchronous — pvaSetMonitor on a nonexistent PV does not
+  error (the poll just never reports a sample); the pvac backend errors there.
+
+## 2026-07-30 — PVXS backend: read path implemented and verified (Phase 2)
+
+`glue/pvaGlue_pvxs.cpp` + `glue/pvaConvert_pvxs.cpp` now exist, so a
+`PVXS = /path/to/built/pvxs` build compiles and the READ side works over
+libpvxs: `pvaGet`/`pvaGetStructure` (incl. smart-pvaGet and the poll flag),
+`pvaInfo`, all nine metadata getters, `pvaChannels`/`pvaIsConnected`
+(client::Connect-based), timeout/provider/debug config. Verified live against
+a softIocPVA (labpvaTest.db) with a MATLAB-free harness driving the real glue +
+marshaller: NTScalar (full nested struct incl. display/control/valueAlarm and
+the display.form enum sugar), NTEnum (choice string / 'D' index / choices),
+NTScalarArray, strings, booleans, timestamps, and the error paths (timeout,
+bad PV, provider refusal).
+
+Notes discovered during bring-up:
+- pvxs's `pvRequest("field(a,b)")` string parser does not treat the comma list
+  as fields; the glue translates `field(a,b,...)` into builder `.field()` calls.
+- Against a QSRV1 server, scoped GETs are not subset (the full structure is
+  transferred) even via pvxs's own `pvxget -r` — correctness is unaffected;
+  the pvac backend keeps the bandwidth saving; QSRV2 servers honour subsets.
+- `pvaSetProvider` now returns success (bool): the PVXS backend refuses 'ca'
+  and the MEX raises `labpva:unsupported` (PVXS has no CA provider).
+- Puts (`pvaPut*`) and monitors (`pvaSetMonitor` family) raise a clear
+  `labpva:unsupported` error under PVXS until Phases 3-4.
+- Added `doc/pvaBenchmark.m` for classic-vs-PVXS read timing A/B.
+
+## 2026-07-30 — dual-backend plumbing: optional PVXS client (Phase 1 of the port)
+
+The glue layer can now be built against either pvAccess implementation,
+selected in `configure/RELEASE`: leave `PVXS` commented out for the classic
+pvaClient/pvAccessCPP stack (the default — behavior unchanged), or set
+`PVXS = /path/to/built/pvxs` to compile against libpvxs (`-DLABPVA_USE_PVXS`).
+
+- `glue/pvaBackend.h` (new): `labpva::PvValue` — the one structure handle that
+  crosses the glue boundary (`PVStructurePtr` on pvac, `pvxs::Value` on pvxs).
+- Backend split: `pvaGlue.cpp` → `pvaGlue_pvac.cpp`, `pvaConvert.cpp` →
+  `pvaConvert_pvac.cpp`; the Makefiles build `pva{Glue,Convert}_$(LABPVA_BACKEND).o`.
+- Interface neutralized: all read-path MEX no longer reference `epics::pvData`
+  — `pvaGetNelem`/`pvaGetEnumStrings`/`pvaInfo` now use new convert helpers
+  (`pvValueNelem`, `pvEnumChoicesToMx`, `pvTypeId`/`pvIntrospect`);
+  `getDoubleField`/`getStringField` moved from mglue (now backend-free) into
+  pvaConvert. The write path (pvaPut*/pvaPutStructure and mxToPv*) stays
+  pvac-only behind `#ifndef LABPVA_USE_PVXS` until the put phase of the port.
+- configure: `ifdef PVXS` selects backend, includes, `-lpvxs -lCom`, libdirs and
+  rpaths; a bad `PVXS` path fails at configure time with a clear message.
+
+**Status:** the pvac default rebuilds cleanly on both arches with identical
+behavior. The `pvaGlue_pvxs.cpp`/`pvaConvert_pvxs.cpp` backend sources are the
+next phases (read path, then puts, then monitors); until they exist, defining
+`PVXS` intentionally stops the build at the missing file.
+
 ## 2026-06-29 — fix: segfault when quitting MATLAB after a failed connect / pvaClear
 
 **Symptom.** `pvaGet` on a non-existent PV (connect fails), or `pvaClear` on a

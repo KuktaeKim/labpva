@@ -9,7 +9,6 @@
 #include "pvaMetaShared.h"
 #include "pvaConvert.h"
 using namespace labpva;
-using namespace epics::pvData;
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
     if (nrhs < 1)
@@ -22,7 +21,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     std::vector<double> sev, sta, secs, nsecs;
     bool wantTs = (nlhs >= 3);
     for (size_t i = 0; i < pvs.size(); ++i) {
-        PVStructurePtr pv = pvaGet(pvs[i], "field(alarm,timeStamp)", err);
+        PvValue pv = pvaGet(pvs[i], "field(alarm,timeStamp)", err);
         if (err.err != PVA_OK) break;
         sev.push_back(getDoubleField(pv, "alarm.severity", 0.0));
         sta.push_back(getDoubleField(pv, "alarm.status", 0.0));

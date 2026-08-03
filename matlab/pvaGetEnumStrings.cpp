@@ -8,24 +8,6 @@
  */
 #include "pvaMetaShared.h"
 using namespace labpva;
-using namespace epics::pvData;
-
-static mxArray *choicesFor(const PVStructurePtr &pv)
-{
-    PVFieldPtr value = pv ? pv->getSubField("value") : PVFieldPtr();
-    if (value && value->getField()->getType() == structure) {
-        PVStructurePtr vs = std::tr1::static_pointer_cast<PVStructure>(value);
-        PVStringArrayPtr ch = vs->getSubField<PVStringArray>("choices");
-        if (ch) {
-            shared_vector<const std::string> v = ch->view();
-            mxArray *cell = mxCreateCellMatrix(1, v.size());
-            for (size_t i = 0; i < v.size(); ++i)
-                mxSetCell(cell, i, mxCreateString(v[i].c_str()));
-            return cell;
-        }
-    }
-    return mxCreateCellMatrix(1, 0);
-}
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
@@ -39,9 +21,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     std::vector<mxArray *> out;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        PVStructurePtr pv = pvaGet(pvs[i], "field(value)", err);
+        PvValue pv = pvaGet(pvs[i], "field(value)", err);
         if (err.err != PVA_OK) break;
-        out.push_back(choicesFor(pv));
+        out.push_back(pvEnumChoicesToMx(pv));
     }
     errCheck(err);
 

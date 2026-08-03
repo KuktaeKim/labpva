@@ -1,4 +1,6 @@
-/* pvaConvert.cpp - see pvaConvert.h
+/* pvaConvert_pvac.cpp - see pvaConvert.h. Classic-backend implementation
+ * (pvDataCPP). The PVXS implementation is pvaConvert_pvxs.cpp; the Makefile
+ * picks one via LABPVA_BACKEND.
  *
  * All EPICS type access goes through the generic Convert path
  * (PVScalar::getAs<T>/putFrom<T>, PVScalarArray::getAs<T>/putFrom<T>) so we
@@ -12,6 +14,7 @@
 #include <pv/pvAlarm.h>
 #include <pv/alarm.h>
 
+#include <sstream>
 #include <string>
 #include <vector>
 #include <set>
@@ -319,6 +322,63 @@ mxArray *pvAlarmToMx(const PVStructurePtr &pv)
     mxSetFieldByNumber(s, 0, 1, mxCreateDoubleScalar(sta));
     mxSetFieldByNumber(s, 0, 2, mxCreateString(msg.c_str()));
     return s;
+}
+
+/* ------------------------------------------------------------------ */
+/* introspection helpers (keep the MEX free of backend types)          */
+/* ------------------------------------------------------------------ */
+
+double pvValueNelem(const PvValue &pv)
+{
+    PVFieldPtr v = pv ? pv->getSubField("value") : PVFieldPtr();
+    if (v && v->getField()->getType() == scalarArray)
+        return (double)std::tr1::static_pointer_cast<PVScalarArray>(v)->getLength();
+    return 1.0;
+}
+
+mxArray *pvEnumChoicesToMx(const PvValue &pv)
+{
+    PVFieldPtr value = pv ? pv->getSubField("value") : PVFieldPtr();
+    if (value && value->getField()->getType() == structure) {
+        PVStructurePtr vs = std::tr1::static_pointer_cast<PVStructure>(value);
+        PVStringArrayPtr ch = vs->getSubField<PVStringArray>("choices");
+        if (ch) {
+            shared_vector<const std::string> v = ch->view();
+            mxArray *cell = mxCreateCellMatrix(1, v.size());
+            for (size_t i = 0; i < v.size(); ++i)
+                mxSetCell(cell, i, mxCreateString(v[i].c_str()));
+            return cell;
+        }
+    }
+    return mxCreateCellMatrix(1, 0);
+}
+
+std::string pvTypeId(const PvValue &pv)
+{
+    return pv ? pv->getStructure()->getID() : std::string();
+}
+
+std::string pvIntrospect(const PvValue &pv)
+{
+    std::ostringstream oss;
+    if (pv) oss << *pv;                 /* pvData's own tree+value dump */
+    return oss.str();
+}
+
+double getDoubleField(const PvValue &pv, const std::string &path, double dflt)
+{
+    if (!pv) return dflt;
+    PVFieldPtr f = pv->getSubField(path);
+    if (!f || f->getField()->getType() != scalar) return dflt;
+    return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<double>();
+}
+
+std::string getStringField(const PvValue &pv, const std::string &path)
+{
+    if (!pv) return "";
+    PVFieldPtr f = pv->getSubField(path);
+    if (!f || f->getField()->getType() != scalar) return "";
+    return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<std::string>();
 }
 
 /* ------------------------------------------------------------------ */

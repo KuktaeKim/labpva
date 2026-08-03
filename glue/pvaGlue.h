@@ -15,7 +15,10 @@
 #define PVA_GLUE_H
 
 #include "pvaError.h"
+#include "pvaBackend.h"
+#ifndef LABPVA_USE_PVXS
 #include <pv/pvaClient.h>
+#endif
 #include <string>
 #include <vector>
 
@@ -23,10 +26,12 @@ namespace labpva {
 
 /* ---- configuration (analogues of lcaSet/GetTimeout etc.) ------------- */
 
-/* Provider order handed to PvaClient. Default "pva ca" means: try pvAccess
- * first, fall back to Channel Access for names a v3 IOC still serves. Set to
- * "pva" to force pvAccess only, or "ca" to force Channel Access. */
-void        pvaSetProvider(const std::string &providers);
+/* Provider token for subsequently-opened channels. On the classic backend
+ * "pva" (default) or "ca" (Channel Access fallback for v3-only names). Returns
+ * false if this backend cannot provide the requested protocol -- the PVXS
+ * backend speaks pvAccess only, so it refuses "ca" (the MEX then raises a
+ * clear labpva:unsupported error). */
+bool        pvaSetProvider(const std::string &providers);
 std::string pvaGetProvider();
 
 void        pvaSetTimeout(double seconds);   /* connect/IO timeout, default 5 */
@@ -53,9 +58,13 @@ bool        pvaGetDebug();
  * false (its needs -- just `value` -- are met by any monitor); `pvaGetStructure`
  * sets it true. Metadata getters leave `useMonitorCache` false and always read
  * fresh. */
-epics::pvData::PVStructurePtr
+PvValue
 pvaGet(const std::string &name, const std::string &request, PvaError &err,
        bool useMonitorCache = false, bool requireWholeMonitor = false);
+
+#ifndef LABPVA_USE_PVXS
+/* ---- write path (classic backend; the PVXS equivalent lands with the put
+ * phase of the port -- pvxs puts are builder-based, a different shape) ----- */
 
 /* Prepare a put: connect, create the put, and fetch current values so the
  * caller can modify just the fields it wants. Returns null on failure. */
@@ -67,6 +76,16 @@ pvaPutPrepare(const std::string &name, const std::string &request, PvaError &err
  * offset (or the whole structure if fieldOffset==0) changed before sending. */
 void pvaPutCommit(const epics::pvaClient::PvaClientPutPtr &put,
                   std::size_t changedFieldOffset, bool wait, PvaError &err);
+#else
+/* ---- write path (PVXS backend) --------------------------------------- */
+
+/* Execute a put of a pre-built argument Value (see pvaConvert.h mxToPutArg*):
+ * only the MARKED fields of `arg` are sent; the server keeps the rest. `wait`
+ * true blocks for completion (lcaPut); false is fire-and-forget (the pending
+ * operation is parked internally so it is not cancelled, and reaped once its
+ * completion callback fires). */
+void pvaPutExec(const std::string &name, const PvValue &arg, bool wait, PvaError &err);
+#endif /* !LABPVA_USE_PVXS */
 
 /* ---- monitor registry (lcaSetMonitor family) ------------------------ */
 
@@ -82,9 +101,9 @@ bool pvaMonitorPoll(const std::string &name, PvaError &err);
  * next monitor event. Mirrors lcaNewMonitorWait. Returns true on event. */
 bool pvaMonitorWait(const std::string &name, double timeout, PvaError &err);
 
-/* The most recently cached monitored value (deep copy), or null if none.
+/* The most recently cached monitored value (deep copy), or invalid if none.
  * pvaGet uses this so a monitored channel is served from cache like ezca. */
-epics::pvData::PVStructurePtr pvaMonitorLatest(const std::string &name);
+PvValue pvaMonitorLatest(const std::string &name);
 
 bool pvaMonitorActive(const std::string &name);
 

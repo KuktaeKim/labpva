@@ -9,7 +9,6 @@
 
 #include "mex.h"
 #include "pvaError.h"
-#include <pv/pvData.h>
 #include <string>
 #include <vector>
 
@@ -52,14 +51,9 @@ mxArray *assembleValueOutput(std::vector<mxArray *> &values, bool wasCell);
  * (mxGetComplexDoubles) MATLAB complex APIs. */
 mxArray *complexColumn(const std::vector<double> &re, const std::vector<double> &im);
 
-/* Read a scalar double sub-field by (possibly dotted) path, e.g.
- * "display.limitLow"; returns `dflt` if the field is absent. */
-double getDoubleField(const epics::pvData::PVStructurePtr &pv,
-                      const std::string &path, double dflt);
-
-/* Read a string sub-field by path; returns "" if absent. */
-std::string getStringField(const epics::pvData::PVStructurePtr &pv,
-                           const std::string &path);
+/* NOTE: the structure field readers getDoubleField/getStringField moved to
+ * pvaConvert.h -- they touch the backend's data model, and mglue is the
+ * backend-neutral mx/argument layer. */
 
 } // namespace labpva
 

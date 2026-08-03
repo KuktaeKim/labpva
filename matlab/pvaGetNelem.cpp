@@ -3,7 +3,6 @@
  */
 #include "pvaMetaShared.h"
 using namespace labpva;
-using namespace epics::pvData;
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
     (void)nlhs;
@@ -16,13 +15,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     std::vector<double> nel;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        PVStructurePtr pv = pvaGet(pvs[i], "field(value)", err);
+        PvValue pv = pvaGet(pvs[i], "field(value)", err);
         if (err.err != PVA_OK) break;
-        double n = 1.0;
-        PVFieldPtr v = pv ? pv->getSubField("value") : PVFieldPtr();
-        if (v && v->getField()->getType() == scalarArray)
-            n = (double)std::tr1::static_pointer_cast<PVScalarArray>(v)->getLength();
-        nel.push_back(n);
+        nel.push_back(pvValueNelem(pv));
     }
     errCheck(err);
     plhs[0] = colFromDoubles(nel, wasCell);

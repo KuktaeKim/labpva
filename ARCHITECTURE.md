@@ -22,22 +22,35 @@ carry an arbitrary, self-describing **PVStructure** rather than a bare value.
 The standard shapes are the *normative types* (NTScalar, NTScalarArray,
 NTEnum, NTTable, NTNDArray, ...), but a server may publish any structure.
 
-labpva keeps labca's shape but swaps the bottom two layers for the PVA stack:
+labpva keeps labca's shape but swaps the bottom two layers for the PVA stack.
+The client library underneath the glue is **selectable at build time** (via
+`PVXS` in `configure/RELEASE` — see §6 and the README "Client backend"); both
+options speak the same pvAccess wire protocol, so IOCs and the MATLAB API are
+identical either way:
 
 ```
+classic backend (default, PVXS not defined):
+
 MATLAB  ─▶  pvaGet.mexa64  ─▶  libmpvaglue   ─▶  pvaClientCPP ─▶ libpvAccess / libpvData / libnt
             (one MEX per verb)  (glue + struct  (sync wrapper   (pvAccess + pvData + normativeTypes)
                                  marshalling)    over PVA)
+
+PVXS backend (PVXS = /path/to/built/pvxs in configure/RELEASE):
+
+MATLAB  ─▶  pvaGet.mexa64  ─▶  libmpvaglue   ─▶  libpvxs
+            (one MEX per verb)  (glue + struct  (PVXS: pvAccess client + data
+                                 marshalling)    model in one modern library)
 ```
 
-Concretely the glue layer is four objects in `glue/`:
+Concretely the glue layer is four objects in `glue/` (`<backend>` = `pvac` for
+the classic stack, `pvxs` for PVXS):
 
-| labpva file       | role                                                        | labca analogue            |
-| ----------------- | ----------------------------------------------------------- | ------------------------- |
-| `pvaError.*`      | error codes + process-global last error                     | `lcaError.*`              |
-| `pvaConvert.*`    | **PVStructure ↔ mxArray marshalling (the new core)**        | (no analogue)             |
-| `pvaGlue.*`       | PvaClient singleton, channel cache, monitor registry, get/put | `multiEzca.*` + ezca cache |
-| `mglue.*`         | MEX argument parsing, error funnel, output assembly         | `mglue.*`                 |
+| labpva file             | role                                                        | labca analogue            |
+| ----------------------- | ----------------------------------------------------------- | ------------------------- |
+| `pvaError.*`            | error codes + process-global last error                     | `lcaError.*`              |
+| `pvaConvert_<backend>.*`| **PV structure ↔ mxArray marshalling (the new core)**       | (no analogue)             |
+| `pvaGlue_<backend>.*`   | client singleton, channel cache, monitor registry, get/put  | `multiEzca.*` + ezca cache |
+| `mglue.*`               | MEX argument parsing, error funnel, output assembly         | `mglue.*`                 |
 
 ## 2. The structure model (the central difference)
 
@@ -202,8 +215,8 @@ labca verbs intentionally **not** carried over: `lcaSetRetryCount`/
 labpva keeps state that must outlive a single MEX call and be shared across
 *different* verbs:
 
-- the **channel/monitor registry** + the single `PvaClient` (`g_monitors`,
-  `g_client` in `pvaGlue.cpp`),
+- the **channel/monitor registry** + the single client (`g_monitors`,
+  `g_client`/`g_channels` in `pvaGlue_<backend>.cpp`),
 - the **provider** and **timeout** settings (`g_provider`, `g_timeout`),
 - the **last-error** code/message (`pvaError.cpp`).
 
@@ -212,11 +225,18 @@ module with private symbols. So this state **must** be defined exactly once, in
 a shared library all the MEX link against — otherwise each MEX gets its own
 copy and, e.g., a monitor set by `pvaSetMonitor` is invisible to
 `pvaNewMonitorValue` (this was a real bug; see CHANGELOG 2026-06-11). The build
-therefore links the two stateful, MATLAB-symbol-free objects (`pvaGlue.o` +
-`pvaError.o`) into **`bin/<arch>/labpva/libmpvaglue.so`**; the MEX add
-`-lmpvaglue` (with an rpath to that dir). The `mx*`-using helpers
-(`pvaConvert.o`, `mglue.o`) are stateless and stay static per-MEX. This mirrors
-labca's `libezca.so` exactly.
+therefore links the two stateful, MATLAB-symbol-free objects
+(`pvaGlue_<backend>.o` + `pvaError.o`) into
+**`bin/<arch>/labpva/libmpvaglue.so`**; the MEX add `-lmpvaglue` (with an rpath
+to that dir). The `mx*`-using helpers (`pvaConvert_<backend>.o`, `mglue.o`) are
+stateless and stay static per-MEX. This mirrors labca's `libezca.so` exactly.
+
+The `<backend>` suffix is the client-implementation split (see README "Client
+backend"): `pvac` = classic pvaClient/pvAccessCPP (default), `pvxs` = PVXS,
+selected by defining `PVXS` in `configure/RELEASE`. The MEX entry points and
+the glue *interface* (`pvaGlue.h`, `pvaConvert.h`) are backend-neutral: the
+structure handle crossing the boundary is `labpva::PvValue` (`pvaBackend.h`) —
+`PVStructurePtr` or `pvxs::Value`.
 
 **Connection caching.** Every verb opens channels through
 `PvaClient::channel(name, provider, timeout)`, which consults a channel cache

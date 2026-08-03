@@ -17,7 +17,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 
     std::vector<std::string> units;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        epics::pvData::PVStructurePtr pv = pvaGet(pvs[i], "field(display)", err);
+        PvValue pv = pvaGet(pvs[i], "field(display)", err);
         if (err.err != PVA_OK) break;
         units.push_back(getStringField(pv, "display.units"));
     }

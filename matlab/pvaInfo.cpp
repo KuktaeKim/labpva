@@ -12,10 +12,9 @@
  */
 #include "mglue.h"
 #include "pvaGlue.h"
-#include <sstream>
+#include "pvaConvert.h"
 
 using namespace labpva;
-using namespace epics::pvData;
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
@@ -26,17 +25,13 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     lockMexFile();          /* about to do EPICS channel work -- pin the MEX */
     std::string name = argString(prhs[0]);
     PvaError err;
-    PVStructurePtr pv = pvaGet(name, "field()", err);
+    PvValue pv = pvaGet(name, "field()", err);
     errCheck(err);
-
-    std::string tid = pv ? pv->getStructure()->getID() : "";
-    std::ostringstream oss;
-    if (pv) oss << *pv;                     /* pvData's own tree+value dump */
 
     const char *fn[3] = { "name", "typeid", "introspection" };
     mxArray *s = mxCreateStructMatrix(1, 1, 3, fn);
     mxSetFieldByNumber(s, 0, 0, mxCreateString(name.c_str()));
-    mxSetFieldByNumber(s, 0, 1, mxCreateString(tid.c_str()));
-    mxSetFieldByNumber(s, 0, 2, mxCreateString(oss.str().c_str()));
+    mxSetFieldByNumber(s, 0, 1, mxCreateString(pvTypeId(pv).c_str()));
+    mxSetFieldByNumber(s, 0, 2, mxCreateString(pvIntrospect(pv).c_str()));
     plhs[0] = s;
 }

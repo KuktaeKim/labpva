@@ -23,7 +23,6 @@
 #include "pvaConvert.h"
 
 using namespace labpva;
-using namespace epics::pvData;
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
@@ -53,9 +52,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     for (size_t i = 0; i < pvs.size(); ++i) {
         /* useMonitorCache defaults on (like pvaGet); requireWholeMonitor=true so
          * a narrow monitor never yields a partial tree. `poll` forces fresh. */
-        PVStructurePtr pv = pvaGet(pvs[i], request, err,
-                                   /*useMonitorCache=*/!poll,
-                                   /*requireWholeMonitor=*/true);
+        PvValue pv = pvaGet(pvs[i], request, err,
+                            /*useMonitorCache=*/!poll,
+                            /*requireWholeMonitor=*/true);
         if (err.err != PVA_OK) break;
         out.push_back(pvStructureToMx(pv, err));
         if (err.err != PVA_OK) break;

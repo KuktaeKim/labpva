@@ -15,5 +15,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     (void)nlhs; (void)plhs;
     if (nrhs < 1 || !mxIsChar(prhs[0]))
         mexErrMsgIdAndTxt("labpva:invalidArg", "pvaSetProvider: need 'pva' or 'ca'");
-    pvaSetProvider(argString(prhs[0]));
+    if (!pvaSetProvider(argString(prhs[0])))
+        mexErrMsgIdAndTxt("labpva:unsupported",
+            "pvaSetProvider: this labpva build uses the PVXS backend, which "
+            "speaks pvAccess only ('ca' unavailable; use labca to read "
+            "record.FIELD channels over Channel Access)");
 }

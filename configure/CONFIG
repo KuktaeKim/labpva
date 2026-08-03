@@ -31,10 +31,35 @@ EPICS_INCLUDES = -I$(EPICS_INC) \
                  -I$(EPICS_INC)/os/$(EPICS_OS_CLASS) \
                  -I$(EPICS_INC)/compiler/$(EPICS_CMPLR_CLASS)
 
+# ---- pvAccess client backend selection --------------------------------------
+# If PVXS is defined (configure/RELEASE), the glue is built against libpvxs
+# (backend "pvxs"); otherwise against the classic pvaClient/pvAccessCPP stack
+# (backend "pvac", the default). Backend-specific sources are
+# glue/pvaGlue_$(LABPVA_BACKEND).cpp and glue/pvaConvert_$(LABPVA_BACKEND).cpp;
+# everything else (mglue, pvaError, all MEX) is shared.
+ifdef PVXS
+  ifeq ($(wildcard $(PVXS)/include/pvxs/client.h),)
+    $(error PVXS is set but $(PVXS)/include/pvxs/client.h was not found -- \
+point PVXS at a BUILT pvxs tree)
+  endif
+  LABPVA_BACKEND   = pvxs
+  BACKEND_CPPFLAGS = -DLABPVA_USE_PVXS
+  EPICS_INCLUDES  += -I$(PVXS)/include
+  PVA_LIBDIRS      = -L$(EPICS_LIB) -L$(PVXS)/lib/$(EPICS_HOST_ARCH)
+  PVA_LIBS         = -lpvxs -lCom
+  PVA_RPATH_DIRS   = $(EPICS_LIB) $(abspath $(PVXS)/lib/$(EPICS_HOST_ARCH))
+else
+  LABPVA_BACKEND   = pvac
+  BACKEND_CPPFLAGS =
+  PVA_LIBDIRS      = -L$(EPICS_LIB)
+  PVA_LIBS         = $(LABPVA_PVA_LIBS)
+  PVA_RPATH_DIRS   = $(EPICS_LIB)
+endif
+PVA_RPATH = $(foreach d,$(PVA_RPATH_DIRS),-Wl,-rpath,$(d))
+
 # ---- assembled flags forwarded to mex --------------------------------------
-PVA_LIBS     = $(LABPVA_PVA_LIBS)
 CXXSTD       = $(LABPVA_CXXSTD)
 MEX_CXXFLAGS = CXXFLAGS='$$CXXFLAGS -fPIC $(CXXSTD)'
-MEX_LDFLAGS  = LDFLAGS='$$LDFLAGS -Wl,-rpath,$(EPICS_LIB)'
+MEX_LDFLAGS  = LDFLAGS='$$LDFLAGS $(PVA_RPATH)'
 
 -include $(TOP)/configure/CONFIG.local

@@ -3,6 +3,12 @@
  * Header-only so each MEX file stays a single translation unit (labca splits
  * the same way via theLcaPutMexFunction). Writes only the `value` field of
  * each channel's structure; use pvaPutStructure for whole-structure writes.
+ *
+ * The MATLAB argument handling is backend-neutral; only the "perform the put"
+ * step differs: the classic backend uses pvaClient's cached put handles
+ * (pvaPutPrepare/pvaPutCommit + mxToPvValue), the PVXS backend pre-builds an
+ * argument Value from a fresh get (mxToPutArg) and sends its marked fields
+ * (pvaPutExec).
  */
 #ifndef LABPVA_PUT_SHARED_H
 #define LABPVA_PUT_SHARED_H
@@ -45,6 +51,46 @@ putValueFor(const mxArray *valArg, size_t i, size_t n, bool wasCell,
     return NULL;
 }
 
+#ifdef LABPVA_USE_PVXS
+
+static inline void
+pvaPutMexBody(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[], bool wait)
+{
+    (void)nlhs; (void)plhs;
+    if (nrhs < 2)
+        mexErrMsgIdAndTxt("labpva:invalidArg",
+                          "pvaPut: need a PV name and a value");
+
+    PvaError err;
+    bool wasCell = false;
+    std::vector<std::string> pvs = buildPVs(prhs[0], wasCell, err);
+    errCheck(err);
+
+    const mxArray *valArg = prhs[1];
+    char type = (nrhs >= 3) ? parseTypeArg(prhs[2]) : 'N';
+    size_t n = pvs.size();
+
+    for (size_t i = 0; i < n; ++i) {
+        mxArray *scratch = NULL;
+        const mxArray *vmx = putValueFor(valArg, i, n, wasCell, &scratch, err);
+        if (err.err != PVA_OK) break;
+
+        /* Fresh get supplies the server's type (and enum choices) so the put
+         * argument can be built here, on the MATLAB thread. */
+        PvValue cur = pvaGet(pvs[i], "field()", err);
+        if (err.err == PVA_OK) {
+            PvValue arg = mxToPutArg(vmx, cur, type, err);
+            if (err.err == PVA_OK)
+                pvaPutExec(pvs[i], arg, wait, err);
+        }
+        if (scratch) mxDestroyArray(scratch);
+        if (err.err != PVA_OK) break;
+    }
+    errCheck(err);
+}
+
+#else /* classic backend */
+
 static inline void
 pvaPutMexBody(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[], bool wait)
 {
@@ -83,6 +129,8 @@ pvaPutMexBody(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[], bool w
     }
     errCheck(err);
 }
+
+#endif /* LABPVA_USE_PVXS */
 
 } // namespace labpva
 

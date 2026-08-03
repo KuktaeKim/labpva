@@ -1,12 +1,17 @@
-/* pvaConvert.h - PVStructure <-> MATLAB mxArray marshalling for labpva
+/* pvaConvert.h - PV structure <-> MATLAB mxArray marshalling for labpva
  *
  * This is the heart of labpva and the part with no analogue in labca: a
  * Channel Access PV carries a single typed value (scalar or waveform), but a
- * pvAccess channel carries an arbitrary PVStructure tree (NTScalar wraps the
+ * pvAccess channel carries an arbitrary structure tree (NTScalar wraps the
  * payload in a `.value` field alongside `.alarm`, `.timeStamp`, `.display`,
  * ...; NTTable is a structure-of-columns; NTNDArray is an image; and a server
  * may expose entirely custom structures). These functions translate that tree
  * to and from native MATLAB types.
+ *
+ * The structure handle crossing this boundary is `labpva::PvValue`
+ * (pvaBackend.h): PVStructurePtr on the classic backend, pvxs::Value on the
+ * PVXS backend. Each backend implements this header in its own
+ * pvaConvert_<backend>.cpp; the MEX entry points see only these declarations.
  *
  * Representation contract (see ARCHITECTURE.md for the full table):
  *   PV scalar (numeric)   -> 1x1 double          (int widths collapse to double,
@@ -23,66 +28,98 @@
  *
  * Field names that are not valid MATLAB identifiers are sanitised (see
  * mxFieldName); the original name is preserved verbatim on write-back via the
- * target PVStructure's own field list, so round-tripping is name-safe.
+ * target structure's own field list, so round-tripping is name-safe.
  */
 #ifndef PVA_CONVERT_H
 #define PVA_CONVERT_H
 
 #include "mex.h"
 #include "pvaError.h"
-#include <pv/pvData.h>
+#include "pvaBackend.h"
 
 namespace labpva {
 
 /* ---- PV -> MATLAB ---------------------------------------------------- */
 
-/* Convert any PVField to the MATLAB type given by the representation
- * contract above. Recurses through structures/arrays/unions. Never returns
- * null: an unrepresentable leaf becomes an empty [] and records PVA_UNSUPPORTED
- * in `err` (the traversal continues so a partial structure still comes back). */
-mxArray *pvFieldToMx(const epics::pvData::PVFieldPtr &field, PvaError &err);
+/* Top-level convenience: convert a whole structure to a 1x1 MATLAB struct. */
+mxArray *pvStructureToMx(const PvValue &pv, PvaError &err);
 
-/* Top-level convenience: convert a whole PVStructure to a 1x1 MATLAB struct. */
-mxArray *pvStructureToMx(const epics::pvData::PVStructurePtr &pv, PvaError &err);
-
-/* Value-only extraction used by pvaGet (the labca-faithful path). Pulls the
- * "value" field out of an NTScalar/NTScalarArray/NTEnum so pvaGet behaves like
- * lcaGet; for a non-NT or value-less structure it falls back to the whole
- * structure via pvStructureToMx. `typeReq` mirrors labca's type letter
- * ('N','D','C',...): 'C' forces string/cell output, others request numeric.
- * Returns a freshly created mxArray. */
-mxArray *pvValueToMx(const epics::pvData::PVStructurePtr &pv, char typeReq, PvaError &err);
+/* Value-only extraction used by pvaGet (the labca-faithful path). Returns the
+ * bare `value` for a scalar/scalar-array/enum; anything richer (or value-less)
+ * comes back as the whole structure via pvStructureToMx. `typeReq` mirrors
+ * labca's type letter ('N','D','C',...): 'C' forces string/cell output, other
+ * letters request numeric. Returns a freshly created mxArray. */
+mxArray *pvValueToMx(const PvValue &pv, char typeReq, PvaError &err);
 
 /* Read the EPICS timestamp into seconds-past-epoch / nanoseconds (both 0 if
  * the structure has no timeStamp field). The MEX layer packs these into the
- * labca-style complex double (sec + i*nsec) via mglue's complexColumn, which
- * works under both the classic and interleaved MATLAB complex APIs. */
-void pvTimeStampSecNsec(const epics::pvData::PVStructurePtr &pv,
-                        double &secOut, double &nsecOut);
+ * labca-style complex double (sec + i*nsec) via mglue's complexColumn. */
+void pvTimeStampSecNsec(const PvValue &pv, double &secOut, double &nsecOut);
 
 /* Marshal the alarm sub-structure to struct(severity,status,message), or an
  * all-zero struct if absent. */
-mxArray *pvAlarmToMx(const epics::pvData::PVStructurePtr &pv);
+mxArray *pvAlarmToMx(const PvValue &pv);
 
-/* ---- MATLAB -> PV ---------------------------------------------------- */
+/* ---- introspection helpers (keep the MEX free of backend types) ------- */
 
-/* Populate an existing target PVField from a MATLAB value, converting element
- * types as needed (the target's introspection is authoritative). Handles
- * scalars, scalar arrays, nested structs (matched by field name) and struct
- * arrays. Records the first conversion problem in `err` and keeps going where
- * it safely can. */
-void mxToPvField(const mxArray *mx, const epics::pvData::PVFieldPtr &target, PvaError &err);
+/* Element count of the `value` field: 1 for a scalar/enum (or no value),
+ * the array length for a scalar array. (Backs pvaGetNelem.) */
+double pvValueNelem(const PvValue &pv);
 
-/* Convenience for pvaPut value-only writes: set just the `value` field of an
- * NTScalar/NTScalarArray (or the single value field of a plain structure)
- * from a MATLAB scalar/vector/string. Returns the bitset-relevant field name
- * actually written, or "" on failure. */
-std::string mxToPvValue(const mxArray *mx, const epics::pvData::PVStructurePtr &pv, char typeReq, PvaError &err);
+/* NTEnum choice strings as a 1xK cell of char; an empty 1x0 cell when the
+ * channel is not an enum. (Backs pvaGetEnumStrings.) */
+mxArray *pvEnumChoicesToMx(const PvValue &pv);
 
-/* ---- helpers (exposed for the metadata MEX functions) ---------------- */
+/* The structure's type id, e.g. "epics:nt/NTScalar:1.0" ("" if none), and a
+ * printable field-tree dump with current values. (Back pvaInfo.) */
+std::string pvTypeId(const PvValue &pv);
+std::string pvIntrospect(const PvValue &pv);
+
+/* Read a scalar double sub-field by (possibly dotted) path, e.g.
+ * "display.limitLow"; returns `dflt` if the field is absent. */
+double getDoubleField(const PvValue &pv, const std::string &path, double dflt);
+
+/* Read a string sub-field by path; returns "" if absent. */
+std::string getStringField(const PvValue &pv, const std::string &path);
+
+/* ---- helpers ---------------------------------------------------------- */
 
 /* Sanitise a PV field name into a legal MATLAB struct field identifier. */
 std::string mxFieldName(const std::string &pvName);
+
+#ifndef LABPVA_USE_PVXS
+/* ---- MATLAB -> PV write path (classic backend; the PVXS equivalent lands
+ * with the put phase of the port) ---------------------------------------- */
+
+/* Convert any PVField to MATLAB per the contract above (recursive). */
+mxArray *pvFieldToMx(const epics::pvData::PVFieldPtr &field, PvaError &err);
+
+/* Populate an existing target PVField from a MATLAB value, converting element
+ * types as needed (the target's introspection is authoritative). */
+void mxToPvField(const mxArray *mx, const epics::pvData::PVFieldPtr &target, PvaError &err);
+
+/* Convenience for pvaPut value-only writes: set just the `value` field from a
+ * MATLAB scalar/vector/string. Returns the field name actually written. */
+std::string mxToPvValue(const mxArray *mx, const PvValue &pv, char typeReq, PvaError &err);
+
+#else
+/* ---- MATLAB -> PV write path (PVXS backend) ---------------------------
+ * pvxs puts send only the MARKED fields of an argument Value. These build
+ * that argument on the MATLAB thread from a freshly fetched Value (`fetched`
+ * supplies the server's type and, for enums, the choice list): the argument
+ * starts as fetched.cloneEmpty() (same type, nothing marked) and assigning
+ * from the MATLAB data marks exactly the written fields. The glue then sends
+ * it via pvaPutExec (pvaGlue.h). Returns an invalid Value with err set on
+ * failure. */
+
+/* pvaPut semantics: write only the `value` field (enum: a choice string or a
+ * bounds-checked index; struct value: matched by sanitised field name). */
+PvValue mxToPutArg(const mxArray *mx, const PvValue &fetched, char typeReq, PvaError &err);
+
+/* pvaPutStructure semantics: `mx` mirrors the whole structure; only the fields
+ * present in it are written (matched by sanitised name, recursive). */
+PvValue mxToPutArgStructure(const mxArray *mx, const PvValue &fetched, PvaError &err);
+#endif /* !LABPVA_USE_PVXS */
 
 } // namespace labpva
 
