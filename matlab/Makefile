@@ -20,8 +20,12 @@ BINDIR = $(TOP)/bin/$(EPICS_HOST_ARCH)/labpva
 GLUE_OBJS = $(TOP)/glue/pvaConvert_$(LABPVA_BACKEND).o $(TOP)/glue/mglue.o
 
 # Resolve libmpvaglue.so at runtime from the MEX's own bin dir, on top of the
-# backend rpaths assembled in configure/CONFIG.
-MEX_LDFLAGS = LDFLAGS='$$LDFLAGS $(PVA_RPATH) -Wl,-rpath,$(abspath $(BINDIR))'
+# backend rpaths assembled in configure/CONFIG. $ORIGIN comes first so a COPIED
+# tree resolves its own libmpvaglue.so (not the original build tree's); the
+# absolute path stays as a fallback. Escaping: make's \$$ -> shell (quoted)
+# passes \$ORIGIN to mex -> mex's internal link shell strips the backslash and
+# hands the linker a literal $ORIGIN.
+MEX_LDFLAGS = LDFLAGS='$$LDFLAGS $(PVA_RPATH) -Wl,-rpath,\$$ORIGIN -Wl,-rpath,$(abspath $(BINDIR))'
 
 # Every MEX entry point. (pvaPutShared.h / pvaMetaShared.h are headers, not
 # entry points, so they are intentionally not listed.)
@@ -43,7 +47,14 @@ MEXFILES = $(patsubst %.cpp,$(BINDIR)/%.$(MEXEXT),$(SRCS))
 .PHONY: all build install clean
 all build install: $(MEXFILES)
 
-$(BINDIR)/%.$(MEXEXT): %.cpp $(GLUE_OBJS)
+# Rebuild every MEX when the configure tree changes (e.g. PVXS toggled) so a
+# backend switch can never leave stale opposite-backend MEX behind.
+CONFIG_DEPS = $(TOP)/configure/RELEASE $(TOP)/configure/CONFIG \
+              $(TOP)/configure/CONFIG_APP $(TOP)/configure/CONFIG_SITE \
+              $(wildcard $(TOP)/configure/RELEASE.local $(TOP)/RELEASE_SITE \
+                         $(TOP)/configure/CONFIG_SITE.local $(TOP)/configure/CONFIG.local)
+
+$(BINDIR)/%.$(MEXEXT): %.cpp $(GLUE_OBJS) $(CONFIG_DEPS)
 	@mkdir -p $(BINDIR)
 	$(MEX) $< $(GLUE_OBJS) -I. -I$(TOP)/glue $(EPICS_INCLUDES) $(BACKEND_CPPFLAGS) \
 		$(MEX_CXXFLAGS) \

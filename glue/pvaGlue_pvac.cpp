@@ -15,6 +15,8 @@ using namespace epics::pvaClient;
 
 namespace labpva {
 
+void backendGuardPvac() {}   /* link guard -- see pvaGlue.h */
+
 /* ---- configuration state -------------------------------------------- */
 
 static std::string g_provider = "pva";   /* per-channel provider token   */
@@ -119,6 +121,23 @@ static PVStructurePtr deepCopy(const PVStructurePtr &src)
 
 /* ---- core operations ------------------------------------------------- */
 
+/* Does this cached sample carry a plain (scalar / scalar-array / enum) `value`
+ * -- i.e. exactly what smart-pvaGet's bare-value fast path returns? For a rich
+ * PV (NTNDArray/NTTable/custom group) or a monitor whose request excluded
+ * `value`, this is false and pvaGet must read fresh: serving the cache would
+ * return a PARTIAL structure (e.g. an image missing dimension/codec). */
+static bool cachedValueIsPlain(const PVStructurePtr &latest)
+{
+    PVFieldPtr v = latest->getSubField("value");
+    if (!v) return false;
+    Type t = v->getField()->getType();
+    if (t == scalar || t == scalarArray) return true;
+    if (t == structure)
+        return std::tr1::static_pointer_cast<PVStructure>(v)
+                   ->getStructure()->getID() == "enum_t";
+    return false;
+}
+
 PvValue pvaGet(const std::string &name, const std::string &request, PvaError &err,
                bool useMonitorCache, bool requireWholeMonitor)
 {
@@ -128,12 +147,17 @@ PvValue pvaGet(const std::string &name, const std::string &request, PvaError &er
      * pvaGetStructure opt in. For structure reads `requireWholeMonitor` is true,
      * so the cache is used only when the monitor's request actually covers the
      * requested fields; otherwise we fall through to a fresh read rather than
-     * hand back a partial structure (NaN/""/0 metadata). Metadata getters pass
-     * useMonitorCache=false and always read fresh. */
+     * hand back a partial structure (NaN/""/0 metadata). The value verb
+     * additionally requires the cached sample to carry a plain `value` (see
+     * cachedValueIsPlain). Metadata getters pass useMonitorCache=false and
+     * always read fresh. */
     if (useMonitorCache) {
         std::map<std::string, MonEntry>::iterator it = g_monitors.find(name);
         if (it != g_monitors.end() && it->second.latest &&
-            (!requireWholeMonitor || monitorCovers(it->second.request, request)))
+            (requireWholeMonitor
+                 ? monitorCovers(it->second.request, request)
+                 : (monitorCovers(it->second.request, request) ||
+                    cachedValueIsPlain(it->second.latest))))
             return it->second.latest;
     }
 

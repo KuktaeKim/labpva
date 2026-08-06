@@ -19,6 +19,29 @@
 
 namespace labpva {
 
+/* Element i of any numeric/logical MATLAB array, as double. `ok` false for an
+ * unsupported class (then the value is unusable). Element-accurate for every
+ * numeric class -- mxGetScalar would silently return element 1 for all i. */
+static inline double
+numericElement(const mxArray *mx, size_t i, bool &ok)
+{
+    ok = true;
+    if (mxIsLogical(mx)) return mxGetLogicals(mx)[i] ? 1.0 : 0.0;
+    switch (mxGetClassID(mx)) {
+    case mxDOUBLE_CLASS: return ((const double  *)mxGetData(mx))[i];
+    case mxSINGLE_CLASS: return (double)((const float   *)mxGetData(mx))[i];
+    case mxINT8_CLASS:   return (double)((const int8_T  *)mxGetData(mx))[i];
+    case mxUINT8_CLASS:  return (double)((const uint8_T *)mxGetData(mx))[i];
+    case mxINT16_CLASS:  return (double)((const int16_T *)mxGetData(mx))[i];
+    case mxUINT16_CLASS: return (double)((const uint16_T*)mxGetData(mx))[i];
+    case mxINT32_CLASS:  return (double)((const int32_T *)mxGetData(mx))[i];
+    case mxUINT32_CLASS: return (double)((const uint32_T*)mxGetData(mx))[i];
+    case mxINT64_CLASS:  return (double)((const int64_T *)mxGetData(mx))[i];
+    case mxUINT64_CLASS: return (double)((const uint64_T*)mxGetData(mx))[i];
+    default: ok = false; return 0.0;
+    }
+}
+
 /* Select the per-PV MATLAB value from the value argument.
  *   single PV     -> the whole argument
  *   list + cell   -> element i
@@ -40,8 +63,19 @@ putValueFor(const mxArray *valArg, size_t i, size_t n, bool wasCell,
     }
     if ((mxIsNumeric(valArg) || mxIsLogical(valArg)) &&
         mxGetNumberOfElements(valArg) == n) {
-        mxArray *s = mxCreateDoubleScalar(mxGetScalar(valArg)); /* placeholder */
-        mxGetPr(s)[0] = mxIsDouble(valArg) ? mxGetPr(valArg)[i] : mxGetScalar(valArg);
+        if (mxIsComplex(valArg)) {
+            err.err = PVA_INVALIDARG;
+            err.msg = "complex values cannot be written to a PV";
+            return NULL;
+        }
+        bool ok = false;
+        double d = numericElement(valArg, i, ok);
+        if (!ok) {
+            err.err = PVA_INVALIDARG;
+            err.msg = "unsupported numeric class in the value vector";
+            return NULL;
+        }
+        mxArray *s = mxCreateDoubleScalar(d);
         *scratch = s;
         return s;
     }

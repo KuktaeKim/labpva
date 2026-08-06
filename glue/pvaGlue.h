@@ -24,6 +24,20 @@
 
 namespace labpva {
 
+/* ---- backend link guard ----------------------------------------------
+ * Each backend's glue defines exactly ONE of these; mglue's lockMexFile
+ * references the one matching its own compile-time backend. If a MEX compiled
+ * for one backend is loaded against a libmpvaglue.so built for the other
+ * (e.g. after toggling PVXS in configure/RELEASE without `make clean`), the
+ * MEX fails to load with a clear "undefined symbol" error instead of silently
+ * mis-treating PvValue (whose C++ mangling does NOT differ for return types,
+ * so pvaGet would otherwise resolve and corrupt memory). */
+#ifdef LABPVA_USE_PVXS
+void backendGuardPvxs();
+#else
+void backendGuardPvac();
+#endif
+
 /* ---- configuration (analogues of lcaSet/GetTimeout etc.) ------------- */
 
 /* Provider token for subsequently-opened channels. On the classic backend

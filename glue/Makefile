@@ -40,14 +40,22 @@ SHLIB_OBJS = $(GLUE_O) pvaError.o
 .PHONY: all build install clean
 all build install: $(OBJS) $(SHLIB)
 
+# Everything depends on the configure tree: editing configure/RELEASE (e.g.
+# toggling PVXS) or the CONFIG files forces a rebuild, so a backend switch can
+# never leave stale opposite-backend objects behind.
+CONFIG_DEPS = $(TOP)/configure/RELEASE $(TOP)/configure/CONFIG \
+              $(TOP)/configure/CONFIG_APP $(TOP)/configure/CONFIG_SITE \
+              $(wildcard $(TOP)/configure/RELEASE.local $(TOP)/RELEASE_SITE \
+                         $(TOP)/configure/CONFIG_SITE.local $(TOP)/configure/CONFIG.local)
+
 # -I. so the glue headers find each other; EPICS includes cover the backend's
 # headers too (configure/CONFIG adds -I$(PVXS)/include when PVXS is set).
-%.o: %.cpp
+%.o: %.cpp $(CONFIG_DEPS)
 	$(MEX) -c $< -I. $(EPICS_INCLUDES) $(BACKEND_CPPFLAGS) $(MEX_CXXFLAGS) -outdir .
 
 # Shared glue library. The backend's client libs are linked in (with rpaths)
 # so the .so is self-sufficient; each MEX then only needs -lmpvaglue.
-$(SHLIB): $(SHLIB_OBJS)
+$(SHLIB): $(SHLIB_OBJS) $(CONFIG_DEPS)
 	@mkdir -p $(BINDIR)
 	$(CXX) -shared -o $@ $(SHLIB_OBJS) \
 		$(PVA_LIBDIRS) $(PVA_LIBS) $(PVA_RPATH)
@@ -61,3 +69,4 @@ mglue.o:               mglue.cpp              mglue.h      pvaError.h
 
 clean:
 	$(RM) pvaError.o pvaConvert_*.o pvaGlue_*.o mglue.o $(SHLIB)
+	$(RM) pvaConvert.o pvaGlue.o    # legacy pre-backend-split object names

@@ -1,5 +1,55 @@
 # labpva changelog
 
+## 2026-08-05 — deep code review of the dual-backend port: fixes + known differences
+
+A full review (two independent passes over the new backend code plus targeted
+source/live verification) produced these fixes, all verified against a live
+softIocPVA (fix regression suite + the full 27-check put/monitor suite re-run):
+
+- **Multi-PV put element bug (H1):** `pvaPut({'PV1','PV2'}, int32([10 20]))`
+  (any non-double numeric class) silently wrote element 1 to every PV —
+  `putValueFor` now converts per element for every numeric class, and rejects
+  complex values and unsupported classes with a clear error. (Both backends.)
+- **Backend-switch safety (H2):** all objects/MEX now depend on the
+  `configure/` files, so toggling `PVXS` in `configure/RELEASE` rebuilds
+  everything automatically (no `make clean` needed); additionally every MEX
+  references a backend "link guard" symbol (`backendGuardPvac`/`...Pvxs`)
+  defined only by the matching `libmpvaglue.so`, so a mismatched MEX/.so pair
+  now fails to load with a clear undefined-symbol error instead of silently
+  corrupting memory (the dangerous `pvaGet` differs between backends only in
+  return type, which C++ mangling does not encode). Legacy pre-split
+  `pvaGlue.o`/`pvaConvert.o` are removed by `clean`.
+- **Empty-value crashes (H3):** `pvaPut(pv, [])` (scalar or enum target) could
+  dereference NULL via `mxGetScalar`; now rejected with `labpva:typeMismatch`.
+  Same guard on the trailing `poll` argument of `pvaGet`/`pvaGetStructure`.
+  (Both backends.)
+- **Exception barrier (M1, pvxs):** all public marshalling entry points now
+  catch C++ exceptions (e.g. `std::bad_alloc` on a huge array) and report a
+  labpva error instead of terminating MATLAB. pvac's `getDoubleField`/
+  `getStringField` also no longer throw on nonconforming servers.
+- **Pending-put cap (M2, pvxs):** parked `pvaPutNoWait` operations (a put to a
+  dead PV never completes) are now bounded at 256; beyond that the oldest is
+  cancelled — no more unbounded growth against a down IOC.
+- **Rich-PV cache guard (M3, both backends):** `pvaGet` on a structured/rich PV
+  (NTNDArray/NTTable/group) with a *narrow* monitor active no longer serves a
+  partial structure from the cache — the value verb serves the cache only when
+  the monitor covers the request or the cached sample carries a plain
+  scalar/array/enum `value`; otherwise it reads fresh.
+- **Relocatable MEX (M7):** the MEX rpath now puts `$ORIGIN` before the
+  absolute bin path, so a COPIED tree resolves its own `libmpvaglue.so` (the
+  established clone-a-copy site pattern previously kept loading the original
+  tree's library).
+
+**Known differences documented, not changed:** pvac's `pvaPutStructure` marks
+the whole structure and (due to pvaClient's cached put handle) can resend
+stale values for fields you didn't set — pvxs sends only the fields your
+struct touched; `pvaNewMonitorWait` consumes one event on pvac but drains-keep-
+newest on pvxs; pvxs `pvaPutStructure` request scoping is top-level only; a
+parked no-wait put that reconnects after an IOC reboot with a *changed* type
+can write wrongly (rare); `'C'` on numeric arrays formats via `%g` on pvxs;
+timeouts are currently reported as `labpva:failure`/`notConnected` rather than
+`labpva:timeout`.
+
 ## 2026-07-31 — PVXS backend complete: puts + monitors (Phases 3-4)
 
 The PVXS backend now implements the full verb set; a `PVXS=...` build is

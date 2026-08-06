@@ -370,7 +370,9 @@ double getDoubleField(const PvValue &pv, const std::string &path, double dflt)
     if (!pv) return dflt;
     PVFieldPtr f = pv->getSubField(path);
     if (!f || f->getField()->getType() != scalar) return dflt;
-    return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<double>();
+    try {                                   /* nonconforming type -> default */
+        return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<double>();
+    } catch (std::exception &) { return dflt; }
 }
 
 std::string getStringField(const PvValue &pv, const std::string &path)
@@ -378,7 +380,9 @@ std::string getStringField(const PvValue &pv, const std::string &path)
     if (!pv) return "";
     PVFieldPtr f = pv->getSubField(path);
     if (!f || f->getField()->getType() != scalar) return "";
-    return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<std::string>();
+    try {
+        return std::tr1::static_pointer_cast<PVScalar>(f)->getAs<std::string>();
+    } catch (std::exception &) { return ""; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -387,6 +391,11 @@ std::string getStringField(const PvValue &pv, const std::string &path)
 
 static void mxToScalar(const mxArray *mx, const PVScalarPtr &s, PvaError &err)
 {
+    if ((mxIsNumeric(mx) || mxIsLogical(mx)) && mxGetNumberOfElements(mx) == 0) {
+        err.err = PVA_TYPEMISMATCH;         /* mxGetScalar on [] is undefined */
+        err.msg = "cannot write an empty value to a scalar PV field";
+        return;
+    }
     if (mxIsChar(mx)) {
         s->putFrom<std::string>(getStdString(mx));
     } else if (mxIsLogical(mx)) {
@@ -528,6 +537,12 @@ std::string mxToPvValue(const mxArray *mx, const PVStructurePtr &pv, char typeRe
                     return "";
                 }
                 if (idx) {
+                    if ((mxIsNumeric(mx) || mxIsLogical(mx)) &&
+                        mxGetNumberOfElements(mx) == 0) {
+                        err.err = PVA_TYPEMISMATCH;
+                        err.msg = "cannot write an empty value to an enum PV";
+                        return "";
+                    }
                     int32 i = (int32)mxGetScalar(mx);
                     PVStringArrayPtr ch = vs->getSubField<PVStringArray>("choices");
                     size_t nch = ch ? ch->view().size() : 0;

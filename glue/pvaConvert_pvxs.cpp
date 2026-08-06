@@ -287,15 +287,31 @@ static mxArray *anyToMx(const Value &v, PvaError &err)
     }
 }
 
+/* Exception barrier shared by the public entry points: no C++ exception may
+ * unwind through the extern-"C" mexFunction boundary (std::terminate). Any
+ * escape (e.g. std::bad_alloc) is converted to a PvaError. */
+#define LABPVA_CONVERT_CATCH(errref, retexpr)                                  \
+    catch (std::exception &e_) {                                               \
+        if ((errref).err == PVA_OK) {                                          \
+            (errref).err = PVA_FAILURE;                                        \
+            (errref).msg = std::string("value conversion failed: ") + e_.what(); \
+        }                                                                      \
+        return (retexpr);                                                      \
+    }
+
 mxArray *pvStructureToMx(const PvValue &pv, PvaError &err)
 {
-    if (!pv) return mxCreateStructMatrix(1, 1, 0, NULL);
-    if (pv.type().code == TypeCode::Struct) return structToMx(pv, err);
-    return anyToMx(pv, err);
+    try {
+        if (!pv) return mxCreateStructMatrix(1, 1, 0, NULL);
+        if (pv.type().code == TypeCode::Struct) return structToMx(pv, err);
+        return anyToMx(pv, err);
+    }
+    LABPVA_CONVERT_CATCH(err, mxCreateStructMatrix(1, 1, 0, NULL))
 }
 
 mxArray *pvValueToMx(const PvValue &pv, char typeReq, PvaError &err)
 {
+    try {                                   /* barrier; body unindented */
     if (!pv) return mxCreateDoubleMatrix(0, 0, mxREAL);
 
     Value value = pv["value"];
@@ -357,6 +373,8 @@ mxArray *pvValueToMx(const PvValue &pv, char typeReq, PvaError &err)
     }
 
     return tc.isarray() ? arrayToMx(value, err) : scalarToMx(value);
+    }
+    LABPVA_CONVERT_CATCH(err, mxCreateDoubleMatrix(0, 0, mxREAL))
 }
 
 void pvTimeStampSecNsec(const PvValue &pv, double &secOut, double &nsecOut)
@@ -379,6 +397,7 @@ mxArray *pvAlarmToMx(const PvValue &pv)
     mxArray *s = mxCreateStructMatrix(1, 1, 3, fn);
     double sev = 0, sta = 0;
     std::string msg;
+    try {
     if (pv) {
         Value a = pv["alarm"];
         if (a) {
@@ -390,6 +409,7 @@ mxArray *pvAlarmToMx(const PvValue &pv)
             } catch (std::exception &) {}
         }
     }
+    } catch (std::exception &) { sev = 0; sta = 0; msg.clear(); }
     mxSetFieldByNumber(s, 0, 0, mxCreateDoubleScalar(sev));
     mxSetFieldByNumber(s, 0, 1, mxCreateDoubleScalar(sta));
     mxSetFieldByNumber(s, 0, 2, mxCreateString(msg.c_str()));
@@ -402,6 +422,7 @@ mxArray *pvAlarmToMx(const PvValue &pv)
 
 double pvValueNelem(const PvValue &pv)
 {
+    try {
     if (!pv) return 1.0;
     Value v = pv["value"];
     if (v) {
@@ -418,10 +439,12 @@ double pvValueNelem(const PvValue &pv)
         }
     }
     return 1.0;
+    } catch (std::exception &) { return 1.0; }
 }
 
 mxArray *pvEnumChoicesToMx(const PvValue &pv)
 {
+    try {
     if (pv) {
         Value value = pv["value"];
         if (value && value.type().code == TypeCode::Struct &&
@@ -438,6 +461,7 @@ mxArray *pvEnumChoicesToMx(const PvValue &pv)
         }
     }
     return mxCreateCellMatrix(1, 0);
+    } catch (std::exception &) { return mxCreateCellMatrix(1, 0); }
 }
 
 std::string pvTypeId(const PvValue &pv)
@@ -447,9 +471,13 @@ std::string pvTypeId(const PvValue &pv)
 
 std::string pvIntrospect(const PvValue &pv)
 {
-    std::ostringstream oss;
-    if (pv) oss << pv;                /* pvxs's own tree+value dump */
-    return oss.str();
+    try {
+        std::ostringstream oss;
+        if (pv) oss << pv;            /* pvxs's own tree+value dump */
+        return oss.str();
+    } catch (std::exception &e) {
+        return std::string("<introspection failed: ") + e.what() + ">";
+    }
 }
 
 double getDoubleField(const PvValue &pv, const std::string &path, double dflt)
@@ -642,6 +670,11 @@ static void mxIntoValue(const mxArray *mx, Value target, PvaError &err)
 
     /* scalar leaf: pvxs converts on assignment (string parses, double
      * narrows), so hand over the natural representation */
+    if ((mxIsNumeric(mx) || mxIsLogical(mx)) && mxGetNumberOfElements(mx) == 0) {
+        err.err = PVA_TYPEMISMATCH;         /* mxGetScalar on [] is undefined */
+        err.msg = "cannot write an empty value to a scalar PV field";
+        return;
+    }
     try {
         if (mxIsChar(mx)) {
             target.from(getStdString(mx));
@@ -662,6 +695,7 @@ static void mxIntoValue(const mxArray *mx, Value target, PvaError &err)
 
 PvValue mxToPutArg(const mxArray *mx, const PvValue &fetched, char typeReq, PvaError &err)
 {
+    try {                                   /* barrier; body unindented */
     (void)typeReq;                          /* kept for signature parity */
     if (!fetched) {
         err.err = PVA_NOFIELD;
@@ -692,6 +726,11 @@ PvValue mxToPutArg(const mxArray *mx, const PvValue &fetched, char typeReq, PvaE
                     return PvValue();
                 }
             } else if (mxIsNumeric(mx) || mxIsLogical(mx)) {
+                if (mxGetNumberOfElements(mx) == 0) {
+                    err.err = PVA_TYPEMISMATCH;
+                    err.msg = "cannot write an empty value to an enum PV";
+                    return PvValue();
+                }
                 i = (int32_t)mxGetScalar(mx);
                 if (!choices.empty() && (i < 0 || (size_t)i >= choices.size())) {
                     err.err = PVA_INVALIDARG;
@@ -722,23 +761,28 @@ PvValue mxToPutArg(const mxArray *mx, const PvValue &fetched, char typeReq, PvaE
     err.err = PVA_NOFIELD;
     err.msg = "structure has no 'value' field; use pvaPutStructure";
     return PvValue();
+    }
+    LABPVA_CONVERT_CATCH(err, PvValue())
 }
 
 PvValue mxToPutArgStructure(const mxArray *mx, const PvValue &fetched, PvaError &err)
 {
-    if (!fetched) {
-        err.err = PVA_NOFIELD;
-        err.msg = "no structure to write";
-        return PvValue();
+    try {
+        if (!fetched) {
+            err.err = PVA_NOFIELD;
+            err.msg = "no structure to write";
+            return PvValue();
+        }
+        if (!mxIsStruct(mx)) {
+            err.err = PVA_INVALIDARG;
+            err.msg = "pvaPutStructure: value must be a struct";
+            return PvValue();
+        }
+        Value arg(fetched.cloneEmpty());
+        mxIntoValue(mx, arg, err);
+        return err.err == PVA_OK ? arg : PvValue();
     }
-    if (!mxIsStruct(mx)) {
-        err.err = PVA_INVALIDARG;
-        err.msg = "pvaPutStructure: value must be a struct";
-        return PvValue();
-    }
-    Value arg(fetched.cloneEmpty());
-    mxIntoValue(mx, arg, err);
-    return err.err == PVA_OK ? arg : PvValue();
+    LABPVA_CONVERT_CATCH(err, PvValue())
 }
 
 } // namespace labpva

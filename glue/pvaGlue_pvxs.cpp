@@ -29,6 +29,8 @@ using namespace pvxs;
 
 namespace labpva {
 
+void backendGuardPvxs() {}   /* link guard -- see pvaGlue.h */
+
 /* ---- configuration state -------------------------------------------- */
 
 static double g_timeout = 5.0;
@@ -282,6 +284,12 @@ static std::map<unsigned long long, std::shared_ptr<client::Operation> > g_pendi
 static std::vector<unsigned long long> g_donePuts;
 static unsigned long long g_putSeq = 0;
 
+/* Bound on parked no-wait puts: a pvaPutNoWait to a PV that never answers
+ * (nonexistent name, IOC down) never completes and would otherwise accumulate
+ * live operations for the whole session. Beyond the cap the OLDEST pending put
+ * is cancelled and dropped. */
+static const size_t MAX_PENDING_PUTS = 256;
+
 static void reapDonePuts()
 {
     std::vector<std::shared_ptr<client::Operation> > graveyard;
@@ -339,8 +347,17 @@ void pvaPutExec(const std::string &name, const PvValue &arg, bool wait, PvaError
                              g_donePuts.push_back(key);
                          })
                          .exec());
-            std::lock_guard<std::mutex> G(g_putLock);
-            g_pendingPuts[key] = op;
+            std::shared_ptr<client::Operation> evicted;
+            {
+                std::lock_guard<std::mutex> G(g_putLock);
+                if (g_pendingPuts.size() >= MAX_PENDING_PUTS) {
+                    evicted = g_pendingPuts.begin()->second;
+                    g_pendingPuts.erase(g_pendingPuts.begin());
+                }
+                g_pendingPuts[key] = op;
+            }
+            /* evicted (if any) destructs here, outside the lock, on the MATLAB
+             * thread -- cancelling the stalest never-completed put */
         }
         recordChannel(name);
     } catch (std::exception &e) {
@@ -372,15 +389,39 @@ void pvaClear(const std::string &name)
 
 /* ---- read ------------------------------------------------------------ */
 
+/* Does this cached sample carry a plain (scalar / scalar-array / enum) `value`
+ * -- i.e. exactly what smart-pvaGet's bare-value fast path returns? For a rich
+ * PV (NTNDArray/NTTable/custom group) or a monitor whose request excluded
+ * `value`, this is false and pvaGet must read fresh: serving the cache would
+ * return a PARTIAL structure (e.g. an image missing dimension/codec). */
+static bool cachedValueIsPlain(const Value &latest)
+{
+    Value v = latest["value"];
+    if (!v) return false;
+    TypeCode tc = v.type();
+    if (tc.code == TypeCode::Struct) {
+        try { return v.id() == "enum_t"; } catch (std::exception &) { return false; }
+    }
+    return tc.code != TypeCode::StructA && tc.code != TypeCode::Union &&
+           tc.code != TypeCode::UnionA  && tc.code != TypeCode::Any &&
+           tc.code != TypeCode::AnyA;
+}
+
 PvValue pvaGet(const std::string &name, const std::string &request, PvaError &err,
                bool useMonitorCache, bool requireWholeMonitor)
 {
     /* Same cache contract as the pvac backend: an active, polled monitor
-     * serves the value read (and covered structure reads) with no round-trip. */
+     * serves the value read (and covered structure reads) with no round-trip.
+     * The value verb (requireWholeMonitor=false) additionally requires the
+     * cached sample to carry a plain `value` -- otherwise smart-pvaGet would
+     * hand back the whole (possibly partial) monitored subset. */
     if (useMonitorCache) {
         std::map<std::string, MonEntry>::iterator it = g_monitors.find(name);
         if (it != g_monitors.end() && it->second.latest &&
-            (!requireWholeMonitor || monitorCovers(it->second.request, request)))
+            (requireWholeMonitor
+                 ? monitorCovers(it->second.request, request)
+                 : (monitorCovers(it->second.request, request) ||
+                    cachedValueIsPlain(it->second.latest))))
             return it->second.latest;
     }
 

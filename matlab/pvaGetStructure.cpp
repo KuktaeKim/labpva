@@ -43,7 +43,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         const mxArray *m = prhs[a];
         if (mxIsChar(m))
             request = argString(m);
-        else if (mxIsLogical(m) || mxIsNumeric(m))
+        else if ((mxIsLogical(m) || mxIsNumeric(m)) &&
+                 mxGetNumberOfElements(m) >= 1)
             poll = (mxGetScalar(m) != 0);
     }
     if (request.empty()) request = "field()";

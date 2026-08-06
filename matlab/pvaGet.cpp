@@ -43,7 +43,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         const mxArray *m = prhs[a];
         if (mxIsChar(m))
             type = parseTypeArg(m);
-        else if (mxIsLogical(m) || mxIsNumeric(m))
+        else if ((mxIsLogical(m) || mxIsNumeric(m)) &&
+                 mxGetNumberOfElements(m) >= 1)
             poll = (mxGetScalar(m) != 0);
     }
     bool wantTs = (nlhs >= 2);

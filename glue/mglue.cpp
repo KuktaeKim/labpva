@@ -1,7 +1,17 @@
 /* mglue.cpp - see mglue.h */
 #include "mglue.h"
+#include "pvaGlue.h"    /* for the backend link guard */
 
 namespace labpva {
+
+/* File-scope address reference so the guard symbol is resolved when the MEX is
+ * LOADED (data relocation), giving a clean "undefined symbol" load error on a
+ * backend mismatch even under lazy function binding. */
+#ifdef LABPVA_USE_PVXS
+static void (*const backendGuardRef)() __attribute__((used)) = &backendGuardPvxs;
+#else
+static void (*const backendGuardRef)() __attribute__((used)) = &backendGuardPvac;
+#endif
 
 void lockMexFile()
 {
@@ -16,6 +26,13 @@ void lockMexFile()
      * locks at most once per MEX file. */
     static bool locked = false;
     if (!locked) { mexLock(); locked = true; }
+    /* Reference the backend link guard so a MEX built for one backend cannot
+     * load against a libmpvaglue.so built for the other (see pvaGlue.h). */
+#ifdef LABPVA_USE_PVXS
+    backendGuardPvxs();
+#else
+    backendGuardPvac();
+#endif
 }
 
 std::string argString(const mxArray *mx)
