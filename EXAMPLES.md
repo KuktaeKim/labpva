@@ -150,6 +150,28 @@ pvaPut('mdach:mbbo', 'Open');           % NTEnum: a string is matched to the cho
 pvaPut('mdach:mbbo', 1);                % NTEnum: a number sets the index
 ```
 
+### Writing a LIST of PVs (one value each, or the same value to all)
+
+With a cell of names you can either give one value per PV, or give a **single
+value** that is written to **every** PV in the list — the same broadcast as
+`lcaPut`, so zeroing all correctors needs no vector of zeros:
+
+```matlab
+correctors = {'mdach:xc1','mdach:xc2','mdach:xc3'};
+
+pvaPut(correctors, [0.1 0.2 0.3]);      % one element per PV (numel == #PVs)
+pvaPut(correctors, 0);                  % ONE scalar -> written to ALL of them
+pvaPut(correctors, {0.1, 'Open', 3});   % cell: one value per PV, mixed types
+
+pvaPut({'mdach:mbbo1','mdach:mbbo2'}, 'Off');   % one string -> both enums
+pvaPutNoWait(correctors, 0);            % same broadcast, no completion wait
+```
+
+A numeric value must have either 1 element (broadcast) or exactly one element
+per PV; any other length is an error rather than a guess. To write the same
+*waveform* to several array PVs, wrap it in a 1x1 cell:
+`pvaPut(wfPVs, {[1 2 3]})`.
+
 ---
 
 ## 8. Writing a PV that is a STRUCTURE

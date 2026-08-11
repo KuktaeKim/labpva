@@ -62,17 +62,24 @@ VERBS = {
     "Write value(s) to channels and wait for completion.",
     ["pvaPut(pvName, value)",
      "pvaPut(pvName, value, type)            % type one of 'NBSLFDC'",
-     "pvaPut({pv1,...}, values [,type])      % values: numeric vector or cell"],
+     "pvaPut({pv1,...}, values [,type])      % values: numeric vector or cell, one per PV",
+     "pvaPut({pv1,...}, value  [,type])      % ONE value -> written to every PV"],
     "Blocks until each put's completion callback fires. For an enum channel a "
     "string value is matched against the choice list; a numeric value sets the "
-    "index.",
+    "index. With a cell of PV names you may pass either one value per PV (a "
+    "numeric vector with numel == number of PVs, or a cell of that length) or "
+    "a SINGLE value -- a scalar, a string, a struct -- which is written to "
+    "every PV in the list, so pvaPut(correctors, 0) zeroes them all without "
+    "building a vector of zeros (same broadcast as lcaPut).",
     "pvaPutNoWait, pvaPutStructure, pvaGet"),
 
 "pvaPutNoWait": (
     "Write value(s) without waiting for completion (fire-and-forget).",
     ["pvaPutNoWait(pvName, value [,type])",
-     "pvaPutNoWait({pv1,...}, values [,type])"],
-    "Same arguments as pvaPut, but returns as soon as the request is issued.",
+     "pvaPutNoWait({pv1,...}, values [,type])",
+     "pvaPutNoWait({pv1,...}, value  [,type])  % ONE value -> every PV"],
+    "Same arguments as pvaPut (including the single-value broadcast over a "
+    "list of PVs), but returns as soon as the request is issued.",
     "pvaPut, pvaPutStructure"),
 
 "pvaPutStructure": (
