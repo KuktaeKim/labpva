@@ -19,6 +19,7 @@ include $(TOP)/configure/CONFIG
 PYTHON ?= python3
 
 DIRS = configure glue matlab
+BINDIR = $(TOP)/bin/$(EPICS_HOST_ARCH)/labpva
 
 .PHONY: all build install glue matlab stubs clean distclean realclean uninstall
 
@@ -38,3 +39,4 @@ stubs: matlab
 clean distclean realclean uninstall:
 	$(MAKE) -C glue clean
 	$(MAKE) -C matlab clean
+	$(RM) -r $(BINDIR)
