@@ -254,6 +254,59 @@ the put. A warm `pvaPut` therefore costs a single round-trip (the write itself;
 `pvaPutNoWait` doesn't even wait for the ack), and a warm `pvaGet` a single read
 round-trip. No per-call channel/handle re-creation.
 
+**The PVXS backend matches this with warm operations.** PVXS has no such
+caches, and each of its Operations is single-shot: it begins with an INIT
+exchange that negotiates the type, then exchanges the data. So the naive
+translation costs two round trips per read and four per `pvaPut` (a read for the
+type, plus the put's INIT and data) — measurably ~6x slower than pvac in a tight
+put loop. Instead `pvaGlue_pvxs.cpp` keeps **one Operation per channel** for
+puts (`g_putChans`) and **one per channel+pvRequest** for reads (`g_getChans`,
+keyed the way pvaClient's get cache is), each created with `.autoExec(false)` so
+it parks at Idle after INIT and can be fired again with
+`Operation::reExecPut` / `reExecGet` (all behind `PVXS_ENABLE_EXPERT_API`). For
+puts the INIT prototype that `.onInit()` delivers *is* the type template the
+argument is built from (`pvaPutProto`), so a scalar/waveform put needs no read
+at all and a single exchange.
+
+Five properties of that expert API shape the code:
+
+- `reExec*` is **silently ignored unless the operation is Idle**. So the warm
+  operation is fired only when it is verifiably ready (alive, free of an
+  in-flight fire-and-forget put, connected, argument type matching, ordering
+  barrier clear — see `pvaPutExec`); in every other state the put or read runs
+  on a one-shot operation, which handles those states natively, and every warm
+  wait is bounded by the labpva timeout.
+- **A disconnect during a put parks the operation at Done forever** ("can't
+  restart as server side-effects may occur") — no reconnect revives it, and
+  `reExec` on it is swallowed silently. Every completion callback therefore
+  classifies its failure (`client::RemoteError` → the operation returned to
+  Idle, reusable; anything else, notably `Disconnect` → terminal) into
+  `ChanState.dead`, and dead channels are dropped and rebuilt, never fired
+  into. A failed or timed-out put is **never re-executed automatically**: the
+  write may already have been applied with only the ack lost, and puts are not
+  idempotent. Reads, which are, retry once while the channel is connected.
+- With `autoExec(false)` a **successful INIT never calls the result callback**
+  (the operation just parks), so `.result()` set at creation reports only an
+  INIT the server refused — without it, such a refusal could merely time out.
+- An enum's `choices` are **data**, absent from an INIT prototype — and they
+  can change server-side without a reconnect, so every enum put reads them
+  fresh rather than trusting a cache that could silently write a wrong index.
+- A reused read operation may receive **only the changed fields**, with pvxs
+  refilling the rest from its prototype (`cache_sync`). The delivered Value is
+  complete, and labpva's marshaller reads values and never marks, so this is
+  transparent — but each warm read channel does retain one reply's worth of
+  data, which the LRU bound and `pvaClear` keep in check.
+
+Two labpva-side invariants complete the picture. *Ordering:* a warm put's data
+goes on the wire immediately, while a one-shot no-wait put sends its data only
+after its own INIT round trip — so while one-shot no-wait puts are pending on a
+channel, the warm operation stays quiet (`ChanState.pendingOneShot`), keeping
+"last value issued" = "last value written". *Type safety:* pvxs serialises a
+put argument against the argument's own descriptor, so the one-shot builder
+validates it against the freshly negotiated INIT prototype and raises a clean
+error if the server was rebuilt with a different shape; the warm path makes the
+same `equalType` check against its current prototype before firing.
+
 ## 6b. Build & API-mode notes
 
 - The build uses the standard EPICS `configure/` layout (like labca): external

@@ -54,7 +54,14 @@ CONFIG_DEPS = $(TOP)/configure/RELEASE $(TOP)/configure/CONFIG \
               $(wildcard $(TOP)/configure/RELEASE.local $(TOP)/RELEASE_SITE \
                          $(TOP)/configure/CONFIG_SITE.local $(TOP)/configure/CONFIG.local)
 
-$(BINDIR)/%.$(MEXEXT): %.cpp $(GLUE_OBJS) $(CONFIG_DEPS)
+# ... and when any header a MEX includes changes. Every MEX pulls in the glue
+# headers (and the shared put/metadata bodies below are headers too), so a
+# glue-interface change -- e.g. a pvaPutProto signature change -- must rebuild
+# them all; without this the old binaries fail at load with a mangled
+# undefined-symbol error against the rebuilt libmpvaglue.so.
+HDR_DEPS = $(wildcard *.h) $(wildcard $(TOP)/glue/*.h)
+
+$(BINDIR)/%.$(MEXEXT): %.cpp $(GLUE_OBJS) $(CONFIG_DEPS) $(HDR_DEPS)
 	@mkdir -p $(BINDIR)
 	$(MEX) $< $(GLUE_OBJS) -I. -I$(TOP)/glue $(EPICS_INCLUDES) $(BACKEND_CPPFLAGS) \
 		$(MEX_CXXFLAGS) \

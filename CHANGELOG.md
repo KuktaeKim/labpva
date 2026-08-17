@@ -1,5 +1,192 @@
 # labpva changelog
 
+## 2026-08-17 — classic backend: pvaGet did TWO network round trips per read
+
+Found by the user's own backend A/B benchmark (30000 ops each way against real
+IOCs): pvxs put ~= pvxs get ~= pvac put (~8.6-9.3 s), but **pvac get took
+18.3 s — exactly double**. Root cause in `glue/pvaGlue_pvac.cpp`:
+`PvaClientChannel::get(request)` consults its per-request get cache and then
+**performs the get itself** (`pvaClientGet->get()` is its last step, cache hit
+or miss — pvaClientChannel.cpp:337-347), so the data it returns is already
+fresh; labpva then called `g->get()` **again**, issuing a second
+`issueGet`+`waitGet`. Every classic-backend read — `pvaGet`,
+`pvaGetStructure`, and all the metadata getters — paid twice.
+
+Fix: the redundant `g->get()` removed (one line). Measured on the local
+softIocPVA: pvac `pvaGet` 50 µs (was 79-96), `pvaGetStructure` 65 (was 94-113),
+`pvaGetUnits` 50 (was 77-94) — now at parity with pvac puts and with the PVXS
+backend, as a single round trip should be. Verified for freshness, not just
+speed: 200 put-then-read pairs each see the immediately preceding write, plus
+structure/metadata/waveform reads and the monitor-cache path.
+
+Note this also retires an earlier claim in this changelog's 2026-08-14 A/B
+notes: PVXS reads are not inherently "~2x faster than the classic backend" —
+that factor was this bug. With it fixed the backends read at comparable speed.
+
+(Both prod copies currently BUILD the PVXS backend, so their shipped binaries
+are unaffected; the fix matters whenever a copy is rebuilt with `PVXS` left
+undefined.)
+
+## 2026-08-14 (later) — review hardening of the warm operations
+
+An adversarial code review of the warm-operation work (below) confirmed ten
+findings, all fixed and live-verified the same day. The dominant root cause:
+pvxs parks a non-autoExec put Operation at **Done permanently** when a
+disconnect hits it mid-Exec ("can't restart as server side-effects may occur"),
+and `reExec*` on such an operation — or on one that is merely busy or
+mid-reconnect — is **silently ignored**. The original code never detected that.
+
+- **Silent write loss fixed:** every completion callback now classifies its
+  failure (`client::RemoteError` leaves the operation Idle/reusable; anything
+  else — notably `Disconnect` — is terminal) and marks the channel dead
+  (`ChanState.dead`). Dead channels are dropped and rebuilt by `openPutChan`,
+  never fired into. Previously the first `pvaPutNoWait` after a mid-flight
+  disconnect was swallowed while reporting success, and the first blocking
+  `pvaPut` stalled a full timeout on the cached dead operation.
+- **No automatic re-execution of puts (at-most-once):** the timeout path used
+  to re-fire the same argument on a fresh operation; if the first put was
+  applied and only its ack was late, a side-effect record (`.PROC`, a relative
+  move) executed twice. A failed or timed-out put now drops the channel where
+  it can no longer be trusted and reports honestly — retrying is the caller's
+  decision. (Instead, puts route to a one-shot operation whenever the warm one
+  is not verifiably ready: alive + free + connected + matching type. One-shots
+  park across a reconnect natively, so recovery needs no re-fire.)
+- **Enum choices are never cached:** the choice list is data that can change
+  server-side *without* a reconnect (`dbpf` on choice strings, autosave), and
+  the cached list could silently write a WRONG INDEX (or spuriously reject a
+  valid new index/string). Every enum put now reads the choices fresh — one
+  round trip over the warm read channel — so an enum put costs 2 RTT.
+  `pvaPutProto` lost its `fresh`/`fromCache` parameters, and the MEX-side
+  mismatch-retry became unnecessary.
+- **Stale-typed arguments can no longer reach the wire:** pvxs serialises a put
+  argument against the argument's own descriptor, so after an IOC rebuild with
+  a changed structure a stale-typed argument was sent anyway and misread by the
+  server. The one-shot builder now validates the argument against the
+  operation's freshly negotiated INIT prototype and raises a clean labpva error
+  (verified live: restart the IOC with the PV re-typed ao→stringout); the warm
+  path checks `equalType` against the current INIT prototype before firing.
+- **`pvaClear` no longer cancels an in-flight fire-and-forget put:**
+  `dropPutChan` parks such an operation in a retirement list and destroys it —
+  on the MATLAB thread — only after its completion callback has run (or its
+  deadline passed). Verified: 20 × (`pvaPutNoWait`; `pvaClear`) back-to-back,
+  all 20 land.
+- **Bounded waits against a down IOC:** a read on a channel labpva knows to be
+  disconnected goes through a one-shot get (ONE timeout, as before the warm
+  work), and the warm-read retry-rebuild is attempted only while the channel is
+  connected; puts route to the one-shot path the same way. Previously a
+  down-IOC `pvaGet` blocked 2× the configured timeout and a put up to 4×.
+  Measured with a 1 s timeout: get 1.00 s, put 1.00 s.
+- **Deterministic timeout identifier:** pvxs put timeouts raise
+  `labpva:timeout` on both the warm and the one-shot path (the one-shot used to
+  surface as `labpva:failure`).
+- **No-wait ordering guarantee:** with warm and one-shot no-wait puts able to
+  interleave, a warm put's data (sent immediately) could OVERTAKE a pending
+  one-shot's data (sent only after its INIT round trip), so the last value
+  issued was not the last value written. A per-channel ordering barrier
+  (`ChanState.pendingOneShot`) now keeps the warm operation quiet until
+  pending one-shots complete. Caught live by a 50-put MATLAB burst.
+- **`doc/pvaBenchmarkPut.m`'s "cold" row relabelled honestly:** it never
+  measured "what every put used to cost" — on PVXS it measures channel rebuild
+  + put, and on the classic backend `pvaClear` does not evict pvaClient's put
+  cache at all, so there it is essentially another warm put. The help text now
+  says exactly that and the cross-backend `speedup_vs_cold` figure is gone.
+- **Internal cleanups** (the review's below-cap items, applied later the same
+  day, behaviour unchanged, full suite re-run): one shared LRU helper and one
+  use-clock for both warm-channel registries; the two put-graveyard reaps
+  consolidated into a single `reapFinishedPuts()` called once per put instead
+  of twice; and the per-execution completion state (`OpSync`) now lives in the
+  warm channel and is re-armed per execution with a generation stamp -- a
+  callback whose stamp no longer matches is ignored, so late completions stay
+  harmless without a fresh allocation per put/read.
+- **Build fix surfaced by the above:** the MEX targets did not depend on the
+  headers they include (`matlab/*.h`, `glue/*.h`), so a glue-interface change
+  left stale MEX binaries that failed at load with an undefined-symbol error.
+  `matlab/Makefile` now lists them (`HDR_DEPS`).
+
+**Verified live** (softIocPVA, both prod copies, RL8 + linux arches): the full
+42-check glue suite, 8 reconnect checks, 26 MATLAB checks, plus a new 20-check
+findings suite that reproduces each review scenario — a `.PROC` counter
+incremented EXACTLY once per put (50/50), enum choices changed live over CA
+(no reconnect) seen by the next put, `pvaPutNoWait`+`pvaClear` bursts, a
+no-wait put in flight across an IOC restart landing afterwards, down-IOC
+latency bounds, and the type-change rebuild. Performance is unchanged:
+put 34 µs, no-wait 23 µs, get 35 µs warm on the local IOC.
+
+## 2026-08-14 — PVXS warm operations: one round trip per put AND per read
+
+A MATLAB put loop (10000 iterations x a 3-PV list = 30000 `pvaPut`s) measured
+**4.41 s on the classic backend against 27.20 s on PVXS — 6.2x slower**. Cause:
+every pvxs Operation is single-shot and opens with an INIT exchange
+(`pvxs/src/clientget.cpp`), so each `pvaPut` cost **four round trips** (a read
+purely to learn the channel's type, then the put's INIT and its data) and each
+`pvaGet` **two**, where pvaClient's cached put/get handles need **one** each.
+
+The PVXS backend now keeps the same kind of warm handle, via PVXS's *expert*
+API (`#define PVXS_ENABLE_EXPERT_API`; note that defining
+`PVXS_EXPERT_API_ENABLED` yourself is a deliberate compile error in
+`pvxs/version.h`): one `.autoExec(false)` Operation that parks after its INIT
+and is re-fired with `Operation::reExecPut` / `reExecGet`.
+
+Measured against a live softIocPVA on one host — `pvaPut` **34 vs 204 µs**
+(5.9x), `pvaPutNoWait` **24 vs 113 µs** (4.7x), `pvaGet` **35 vs 106 µs**
+(3.0x). In MATLAB the reported 3-PV loop now runs at ~37 µs/put.
+
+- `glue/pvaGlue_pvxs.cpp` — new shared warm-operation machinery (`OpInit`,
+  `OpSync`, `awaitOpInit`, `awaitOpSync`, and the INIT/completion callbacks)
+  plus two registries: **`g_putChans`** (one operation per channel) and
+  **`g_getChans`** (one per channel *and* pvRequest, keyed the way pvaClient's
+  get cache is, so the value verb and each metadata getter keep their own). Both
+  LRU-bounded at 256 entries; `pvaClear` retires them (connections stay open).
+- **New glue entry point `pvaPutProto(name, fresh, fromCache, err)`** — the type
+  template a put argument is built from. It is the put operation's INIT
+  prototype, so a scalar/waveform put now does **no read at all**. An enum is
+  the exception: `choices` are data rather than type, so an enum channel reads
+  once and caches the choice list with its template. A reconnect re-INITs the
+  operation, bumping a generation counter that retires the cached template, so
+  an IOC that comes back a different shape cannot be written with a stale type.
+- `matlab/pvaPutShared.h`, `matlab/pvaPutStructure.cpp` — build the argument
+  from `pvaPutProto` instead of a fresh `pvaGet`, with one refresh-and-retry if
+  a *cached* template yields a type mismatch (so a rebuilt IOC's changed enum
+  choices do not surface as a spurious "enum string not among choices").
+- Warm reads bring a bonus: a reused operation may receive **only the changed
+  fields**, with pvxs refilling the rest from its own cache (`cache_sync`) —
+  cheaper in bytes too. The reply is complete either way, and labpva's
+  marshaller reads values and never marks. The cost is memory: each warm read
+  channel retains one reply's worth of data (an image PV read repeatedly holds a
+  frame per request), bounded by the LRU and released by `pvaClear`.
+- `pvaPutNoWait` uses the warm operation only when it is **free**: `reExecPut` is
+  silently ignored unless the operation is Idle, so while one fire-and-forget put
+  is in flight the next falls back to a one-shot operation (which pvxs also
+  re-issues across a reconnect) rather than being dropped. A busy flag that
+  outlives the timeout — a put issued into a reconnect, whose callback can never
+  run — marks the channel stale and rebuilds it.
+- An INIT the server refuses is now reported through the operation's `.result()`
+  callback instead of only timing out as "channel did not connect".
+
+**Warnings are now on by default** (`LABPVA_WARN = -Wall -Wextra
+-Wno-unused-parameter` in `configure/CONFIG_SITE`; empty it in
+`CONFIG_SITE.local` to opt out). A clean build of all 30 MEX is warning-free.
+This was added because the work above briefly shipped a bug that `-Wall` names
+outright: renaming a local left one reference reading `free` — the C library
+function, whose address is always true — so a `pvaPutNoWait` guard was always
+taken and back-to-back fire-and-forget puts were silently discarded
+(`-Waddress`). Found by testing, then fixed; the flag makes that class of
+mistake impossible to miss again.
+
+**Verified** against a live softIocPVA, both prod copies, both arches: 42
+glue-level checks (put/read correctness for scalar/waveform/string/enum,
+template caching, enum choices, repeat reads staying complete across a value
+change, scoped reads, no-wait ordering, `pvaClear` invalidation, prompt failure
+on a nonexistent PV) + 8 reconnect checks (operations fail cleanly while the IOC
+is down, recover and stay warm) + 26 MATLAB-level checks through the real MEX
+(incl. enum by choice string, `pvaPutStructure`, the metadata getters, the
+monitor cache path alongside warm reads, and 50 back-to-back `pvaPutNoWait`
+calls all landing).
+
+Also added **`doc/pvaBenchmarkPut.m`** (companion to `pvaBenchmark`): times
+`pvaPut`, `pvaPutNoWait`, and a put whose channel was just cleared — that last
+one being what every put used to cost. It writes, so point it at a scratch PV.
+
 ## 2026-08-05 — deep code review of the dual-backend port: fixes + known differences
 
 A full review (two independent passes over the new backend code plus targeted
@@ -46,9 +233,11 @@ stale values for fields you didn't set — pvxs sends only the fields your
 struct touched; `pvaNewMonitorWait` consumes one event on pvac but drains-keep-
 newest on pvxs; pvxs `pvaPutStructure` request scoping is top-level only; a
 parked no-wait put that reconnects after an IOC reboot with a *changed* type
-can write wrongly (rare); `'C'` on numeric arrays formats via `%g` on pvxs;
-timeouts are currently reported as `labpva:failure`/`notConnected` rather than
-`labpva:timeout`.
+can write wrongly (rare; **closed 2026-08-14** — the one-shot builder now
+validates the argument type against the negotiated INIT prototype); `'C'` on
+numeric arrays formats via `%g` on pvxs; timeouts were reported as
+`labpva:failure`/`notConnected` rather than `labpva:timeout` (**changed
+2026-08-14** — pvxs put timeouts now uniformly raise `labpva:timeout`).
 
 ## 2026-07-31 — PVXS backend complete: puts + monitors (Phases 3-4)
 

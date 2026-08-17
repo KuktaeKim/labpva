@@ -78,8 +78,60 @@ reads); subscribing to a nonexistent PV does not error at `pvaSetMonitor`
 (pvxs subscriptions are asynchronous — the poll simply never reports a
 sample); and against a QSRV1 IOC scoped requests (`field(display)`, …) are not
 honoured — the full structure is transferred (correct, just not the bandwidth
-saving; QSRV2 servers do subset). `doc/pvaBenchmark.m` times the read verbs
-for backend A/B comparison.
+saving; QSRV2 servers do subset). `doc/pvaBenchmark.m` times the read verbs and
+`doc/pvaBenchmarkPut.m` the write verbs, for backend A/B comparison (the latter
+writes — point it at a scratch PV).
+
+### Warm operations: one round trip per put and per read
+
+Every pvxs Operation is single-shot and opens with an INIT exchange that
+negotiates the type, so the naive translation of labpva's verbs spent **two**
+round trips per read, and **four** per put (a read just to learn the type, then
+the put's INIT and its data). The classic backend needs **one** of each,
+because pvaClient caches a put and a get handle per channel keyed by pvRequest.
+In a tight MATLAB put loop that gap showed up as ~6x: 30000 puts took 4.4 s on
+pvac against 27.2 s on pvxs.
+
+The PVXS backend now keeps the same kind of warm handle: **one Operation per
+channel** (per channel *and* pvRequest for reads), created `.autoExec(false)`
+so it parks after its INIT and is re-fired with `Operation::reExecPut` /
+`reExecGet` — PVXS's expert API, enabled by `PVXS_ENABLE_EXPERT_API`. For puts
+the INIT prototype doubles as the argument's type template, so an ordinary
+scalar/waveform put does **no read at all**. Measured against a local
+softIocPVA:
+
+| verb | warm | before | |
+|---|---|---|---|
+| `pvaPut` | 34 µs | 204 µs | 5.9x |
+| `pvaPutNoWait` | 24 µs | 113 µs | 4.7x |
+| `pvaGet` | 35 µs | 106 µs | 3.0x |
+
+Notes and caveats:
+- An **enum** put reads the choice list fresh **every time** (2 round trips per
+  enum put): choices are data, not type, and can change server-side without a
+  reconnect — a cached list could silently write a wrong index.
+- A **repeat read** may receive only the fields that changed, with pvxs
+  refilling the rest from the operation's own cache — cheaper in bytes as well
+  as round trips, and complete either way. The cost is memory: each warm read
+  channel retains one reply's worth of data (an image PV read repeatedly holds
+  a frame per request). Both registries are LRU-bounded at 256 entries.
+- The warm operation is used only when it is **verifiably ready** — alive, not
+  busy with an in-flight fire-and-forget put, connected, argument type matching
+  its negotiated type, and no one-shot no-wait puts still pending (an ordering
+  barrier: their data must not be overtaken). In every other state the put or
+  read runs on a one-shot operation, which validates the argument type against
+  the server before sending and parks across a reconnect natively.
+- **A put is never re-executed automatically.** On a timeout or a mid-put
+  disconnect the write may or may not have been applied (only the ack is known
+  lost) and puts are not idempotent (`.PROC`, relative moves) — labpva drops
+  the untrustworthy channel, reports `labpva:timeout`, and leaves the retry to
+  you. Idempotent *reads* do retry once, while the channel is connected.
+- Channels that die (a disconnect during a put parks the pvxs operation
+  terminally) are detected and rebuilt on the next use; `pvaClear` retires them
+  explicitly — without cancelling a fire-and-forget put still in flight — and
+  the connection itself stays open either way.
+- Monitors were already at parity: a polled `pvaGet` on a monitored channel is
+  served from the local cache with no round trip at all.
 
 ## Run (in MATLAB)
 

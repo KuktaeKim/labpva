@@ -105,8 +105,9 @@ std::string mxToPvValue(const mxArray *mx, const PvValue &pv, char typeReq, PvaE
 #else
 /* ---- MATLAB -> PV write path (PVXS backend) ---------------------------
  * pvxs puts send only the MARKED fields of an argument Value. These build
- * that argument on the MATLAB thread from a freshly fetched Value (`fetched`
- * supplies the server's type and, for enums, the choice list): the argument
+ * that argument on the MATLAB thread from the channel's type template
+ * (`fetched` -- pvaPutProto in pvaGlue.h -- supplies the server's type and,
+ * for enums, the choice list): the argument
  * starts as fetched.cloneEmpty() (same type, nothing marked) and assigning
  * from the MATLAB data marks exactly the written fields. The glue then sends
  * it via pvaPutExec (pvaGlue.h). Returns an invalid Value with err set on

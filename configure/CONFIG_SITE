@@ -16,6 +16,15 @@ EPICS_CMPLR_CLASS ?= gcc
 # EPICS 7 sources are C++11.
 LABPVA_CXXSTD ?= -std=c++11
 
+# ---- warnings --------------------------------------------------------------
+# On by default because this build once shipped a silent bug that -Wall names
+# outright: a renamed local left one reference reading `free`, the C library
+# function, whose address is always true -- so a guard condition was always
+# taken (-Waddress). The MEX/EPICS/pvxs headers compile clean with these, and
+# -Wno-unused-parameter keeps the deliberate `(void)arg` style quiet.
+# Set LABPVA_WARN = (empty) in CONFIG_SITE.local to turn them off.
+LABPVA_WARN ?= -Wall -Wextra -Wno-unused-parameter
+
 # ---- EPICS 7 libraries the MEX / glue link against -------------------------
 # Link order matters: dependants before dependencies.
 #   pvaClient -> pvAccess(+CA) -> nt -> pvData -> ca -> Com

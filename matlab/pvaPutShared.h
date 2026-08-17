@@ -7,8 +7,9 @@
  * The MATLAB argument handling is backend-neutral; only the "perform the put"
  * step differs: the classic backend uses pvaClient's cached put handles
  * (pvaPutPrepare/pvaPutCommit + mxToPvValue), the PVXS backend pre-builds an
- * argument Value from a fresh get (mxToPutArg) and sends its marked fields
- * (pvaPutExec).
+ * argument Value from the channel's cached type template (pvaPutProto +
+ * mxToPutArg) and sends its marked fields over that channel's warm put
+ * operation (pvaPutExec). Both are one server round trip per put.
  */
 #ifndef LABPVA_PUT_SHARED_H
 #define LABPVA_PUT_SHARED_H
@@ -109,9 +110,12 @@ pvaPutMexBody(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[], bool w
         const mxArray *vmx = putValueFor(valArg, i, n, wasCell, &scratch, err);
         if (err.err != PVA_OK) break;
 
-        /* Fresh get supplies the server's type (and enum choices) so the put
-         * argument can be built here, on the MATLAB thread. */
-        PvValue cur = pvaGet(pvs[i], "field()", err);
+        /* The put channel's type template lets the argument be built here, on
+         * the MATLAB thread: for an ordinary PV it is the warm operation's
+         * INIT prototype (no server read at all); for an enum it is a fresh
+         * read, because the choice list is data that can change without a
+         * reconnect -- see pvaPutProto. */
+        PvValue cur = pvaPutProto(pvs[i], err);
         if (err.err == PVA_OK) {
             PvValue arg = mxToPutArg(vmx, cur, type, err);
             if (err.err == PVA_OK)

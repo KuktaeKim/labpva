@@ -163,8 +163,13 @@ PvValue pvaGet(const std::string &name, const std::string &request, PvaError &er
 
     try {
         PvaClientChannelPtr ch = openChannel(name);
+        /* PvaClientChannel::get() consults its per-request get cache AND then
+         * performs the get itself (pvaClientGet->get() is its last step,
+         * cache hit or miss -- pvaClientChannel.cpp), so the returned data is
+         * already fresh. Calling g->get() here again would issue a SECOND
+         * network round trip per read -- that mistake shipped until
+         * 2026-08-17 and made every pvac read cost twice a put. */
         PvaClientGetPtr g = ch->get(request);
-        g->get();
         return deepCopy(g->getData()->getPVStructure());
     } catch (std::exception &e) {
         err.err = PVA_NOTCONNECTED;

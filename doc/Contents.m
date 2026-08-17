@@ -39,6 +39,8 @@
 %   pvaGetImage         - NTNDArray image -> shaped 2-D/3-D array (+ offset axes)
 %   printpvs            - print every leaf of a fetched structure
 %   printvals           - print only each signal's .value (+ timestamp)
+%   pvaBenchmark        - time the read verbs (backend A/B comparison)
+%   pvaBenchmarkPut     - time the write verbs (WRITES: use a scratch PV)
 %
 % Timestamps are complex doubles: real = seconds past epoch, imag = nanoseconds.
 % See ARCHITECTURE.md for the labca->PVA mapping and the structure model.

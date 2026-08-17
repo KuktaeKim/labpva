@@ -93,11 +93,31 @@ void pvaPutCommit(const epics::pvaClient::PvaClientPutPtr &put,
 #else
 /* ---- write path (PVXS backend) --------------------------------------- */
 
+/* The type template a put argument is built from (pvaConvert.h mxToPutArg*).
+ * For an ordinary PV it is the warm put operation's INIT prototype -- the
+ * type description pvxs gets from the server when the (reused) operation is
+ * created -- so a scalar/waveform put needs NO read at all. An enum is the
+ * one exception: its `choices` are data rather than type AND can change
+ * server-side without a reconnect, so every enum put reads them fresh (one
+ * round trip over the warm read channel), never from a cache -- a stale list
+ * would silently write a wrong index. Returns an invalid Value with `err`
+ * set on failure. */
+PvValue pvaPutProto(const std::string &name, PvaError &err);
+
 /* Execute a put of a pre-built argument Value (see pvaConvert.h mxToPutArg*):
- * only the MARKED fields of `arg` are sent; the server keeps the rest. `wait`
- * true blocks for completion (lcaPut); false is fire-and-forget (the pending
- * operation is parked internally so it is not cancelled, and reaped once its
- * completion callback fires). */
+ * only the MARKED fields of `arg` are sent; the server keeps the rest. Both
+ * modes use the channel's warm put operation when it is verifiably ready
+ * (alive, free, connected, matching type) -- one round trip, no per-put
+ * setup -- and a one-shot operation otherwise. `wait` true blocks for
+ * completion (lcaPut); false is fire-and-forget (lcaPutNoWait; an in-flight
+ * one-shot handle is parked internally so it is not cancelled, and reaped
+ * once its completion callback fires).
+ *
+ * Delivery contract: a put is NEVER re-executed automatically. On a timeout
+ * or a mid-put disconnect the write may or may not have been applied (only
+ * the acknowledgement is known lost); labpva reports the error -- timeouts as
+ * labpva:timeout on every path -- and leaves the retry decision to the
+ * caller, because puts are not idempotent (.PROC, relative moves). */
 void pvaPutExec(const std::string &name, const PvValue &arg, bool wait, PvaError &err);
 #endif /* !LABPVA_USE_PVXS */
 
@@ -135,7 +155,9 @@ bool pvaChannelConnected(const std::string &name);
  * (empty name) clear all monitors. The underlying pvaClient channel stays in
  * pvaClient's own cache -- the connection persists; only the monitor
  * subscription is torn down. After clearing, pvaGet does a fresh server read
- * again. Mirrors lcaClear's monitor teardown. */
+ * again. Mirrors lcaClear's monitor teardown. (The PVXS backend additionally
+ * retires the channel's cached put operation and type template -- again
+ * without dropping the connection; the next put rebuilds them.) */
 void pvaClear(const std::string &name);
 
 } // namespace labpva

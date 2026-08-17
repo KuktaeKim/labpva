@@ -78,7 +78,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         if (!smx || !mxIsStruct(smx)) {
             err.err = PVA_INVALIDARG; err.msg = "each value must be a struct"; break;
         }
-        PvValue cur = pvaGet(pvs[i], "field()", err);   /* type authority */
+        PvValue cur = pvaPutProto(pvs[i], err);         /* type authority */
         if (err.err != PVA_OK) break;
         PvValue arg = mxToPutArgStructure(smx, cur, err);
         if (err.err != PVA_OK) break;

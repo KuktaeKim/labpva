@@ -59,7 +59,7 @@ PVA_RPATH = $(foreach d,$(PVA_RPATH_DIRS),-Wl,-rpath,$(d))
 
 # ---- assembled flags forwarded to mex --------------------------------------
 CXXSTD       = $(LABPVA_CXXSTD)
-MEX_CXXFLAGS = CXXFLAGS='$$CXXFLAGS -fPIC $(CXXSTD)'
+MEX_CXXFLAGS = CXXFLAGS='$$CXXFLAGS -fPIC $(CXXSTD) $(LABPVA_WARN)'
 MEX_LDFLAGS  = LDFLAGS='$$LDFLAGS $(PVA_RPATH)'
 
 -include $(TOP)/configure/CONFIG.local
