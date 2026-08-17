@@ -44,9 +44,31 @@ numericElement(const mxArray *mx, size_t i, bool &ok)
 }
 
 /* Select the per-PV MATLAB value from the value argument.
- *   single PV     -> the whole argument
- *   list + cell   -> element i
- *   list + numeric (numel==N) -> a 1x1 double holding element i  (caller frees)
+ * - single PV                  -> the whole argument
+ * - list + cell of N           -> element i
+ * - list + numeric of N        -> a 1x1 double holding element i (caller frees)
+ * - list + ONE value           -> that value, written to EVERY PV
+ *
+ * The last case is LabCA's broadcast semantics: lcaPut accepts a value
+ * matrix with either 1 or M rows. For example,
+ *
+ *   pvaPut({'PV1','PV2',...}, 0)
+ *
+ * writes 0 to every PV without requiring the caller to build a vector
+ * of zeros.
+ *
+ * "ONE value" means a numeric/logical scalar, a char row (a string, e.g.
+ * an enum choice), a struct, a 1x1 cell, or anything else that is not
+ * a per-PV container.
+ *
+ * A list containing ONE PV likewise takes the whole argument, so:
+ *
+ *   pvaPut({'PV'}, [1 2 3])
+ *
+ * writes a waveform, equivalent to:
+ *
+ *   pvaPut('PV', [1 2 3])
+ *
  * Returns NULL and sets err on a shape mismatch. */
 static inline const mxArray *
 putValueFor(const mxArray *valArg, size_t i, size_t n, bool wasCell,
@@ -55,18 +77,31 @@ putValueFor(const mxArray *valArg, size_t i, size_t n, bool wasCell,
     *scratch = NULL;
     if (!wasCell) return valArg;
     if (mxIsCell(valArg)) {
-        if (mxGetNumberOfElements(valArg) != n) {
+        size_t nv = mxGetNumberOfElements(valArg);
+        if (nv == 1) return mxGetCell(valArg, 0);        /* one value -> all PVs */
+        if (nv != n) {
             err.err = PVA_INVALIDARG;
-            err.msg = "value cell length must match the number of PVs";
+            err.msg = "value cell must hold one value per PV, or a single "
+                      "value to write to all of them";
             return NULL;
         }
         return mxGetCell(valArg, i);
     }
-    if ((mxIsNumeric(valArg) || mxIsLogical(valArg)) &&
-        mxGetNumberOfElements(valArg) == n) {
+    if (mxIsNumeric(valArg) || mxIsLogical(valArg)) {
+        size_t nv = mxGetNumberOfElements(valArg);
         if (mxIsComplex(valArg)) {
             err.err = PVA_INVALIDARG;
             err.msg = "complex values cannot be written to a PV";
+            return NULL;
+        }
+        /* Scalar broadcast, or a single-PV list taking the whole argument (a
+         * waveform): hand the argument over untouched. */
+        if (nv == 1 || n == 1) return valArg;
+        if (nv != n) {
+            err.err = PVA_INVALIDARG;
+            err.msg = "for a list of PVs, give a numeric vector with one "
+                      "element per PV, a cell of values, or a single value to "
+                      "write to all of them";
             return NULL;
         }
         bool ok = false;
@@ -80,10 +115,15 @@ putValueFor(const mxArray *valArg, size_t i, size_t n, bool wasCell,
         *scratch = s;
         return s;
     }
-    err.err = PVA_INVALIDARG;
-    err.msg = "for a list of PVs, give a cell of values or a numeric vector "
-              "with one element per PV";
-    return NULL;
+    if (mxIsChar(valArg) && mxGetM(valArg) > 1) {
+        /* A char MATRIX is one string per row to the eye but column-major
+         * garbage to mxArrayToString -- do not silently write it. */
+        err.err = PVA_INVALIDARG;
+        err.msg = "give per-PV strings as a cell of char rows, not a char "
+                  "matrix";
+        return NULL;
+    }
+    return valArg;                     /* string / struct / ... -> every PV */
 }
 
 #ifdef LABPVA_USE_PVXS

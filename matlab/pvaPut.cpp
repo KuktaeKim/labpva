@@ -2,7 +2,11 @@
  *
  *   pvaPut(pvname, value)
  *   pvaPut(pvname, value, type)              type in 'NBSLFDC'
- *   pvaPut({pv1,pv2,...}, values [,type])    values = numeric vector or cell
+ *   pvaPut({pv1,pv2,...}, values [,type])    values = numeric vector or cell,
+ *                                            one per PV
+ *   pvaPut({pv1,pv2,...}, value [,type])     ONE value -> written to every PV
+ *                                            (cf. lcaPut, e.g. all correctors
+ *                                            to 0)
  *
  * Blocks until each put's completion callback fires. For enum channels a
  * string value is matched against the choice list; a numeric value sets the

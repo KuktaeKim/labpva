@@ -157,6 +157,8 @@ info = pvaInfo('labpva:test:ao')          % type id + field-tree dump (cf. pvinf
 
 pvaPut('labpva:test:ao', 1.25)            % scalar write, waits for completion (cf. lcaPut)
 pvaPutNoWait('labpva:test:ao', 1.25)      % fire and forget
+pvaPut({'ao1','ao2','ao3'}, [1 2 3])      % list of PVs: one value each
+pvaPut({'ao1','ao2','ao3'}, 0)            % ONE value -> written to every PV (cf. lcaPut)
 clear c; c.value.x = 1.5; c.value.y = -2; % set just these leaves of a structured PV
 pvaPutStructure('mdach:circle', c)        % writes value.x/value.y; other fields unchanged
 
@@ -256,8 +258,8 @@ read past the monitor cache. `help <verb>` gives per-verb detail.
 | --- | --- |
 | `pvaGet(pv [,type] [,poll])` | Read a channel: the `.value` for a scalar/array/enum, or the whole nested struct for a structured/rich PV. `[v,ts]=…` also returns the timestamp. |
 | `pvaGetStructure(pv [,request] [,poll])` | Always return the **entire** PVStructure as a nested struct (even a scalar's). `request` = pvRequest (default `field()`). |
-| `pvaPut(pv, value [,type])` | Write the `.value` field, **wait** for completion (drop-in for `lcaPut`). Enums accept a choice string or an index. |
-| `pvaPutNoWait(pv, value [,type])` | Write without waiting for completion. |
+| `pvaPut(pv, value [,type])` | Write the `.value` field, **wait** for completion (drop-in for `lcaPut`). Enums accept a choice string or an index. With a cell of names: one value per PV, or a **single value written to all of them** (`pvaPut(correctors, 0)`). |
+| `pvaPutNoWait(pv, value [,type])` | Write without waiting for completion (same argument forms, broadcast included). |
 | `pvaPutStructure(pv, s [,request])` | Write a whole structure from a MATLAB struct; only the fields present in `s` are written (others keep their value). |
 | `pvaInfo(pv)` | Introspect: struct with `.name`, `.typeid`, and a field-tree `.introspection` dump (cf. `pvinfo`). |
 

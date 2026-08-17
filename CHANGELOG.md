@@ -186,6 +186,27 @@ calls all landing).
 Also added **`doc/pvaBenchmarkPut.m`** (companion to `pvaBenchmark`): times
 `pvaPut`, `pvaPutNoWait`, and a put whose channel was just cleared — that last
 one being what every put used to cost. It writes, so point it at a scratch PV.
+## 2026-08-10 — pvaPut/pvaPutNoWait: single-value broadcast over a list of PVs
+
+`pvaPut({'PV1','PV2',...}, value)` now accepts **one** value and writes it to
+**every** PV in the list, matching `lcaPut` (whose value matrix may have 1 or M
+rows): `pvaPut(correctors, 0)` zeroes the whole list without building a vector
+of zeros. Previously only "one value per PV" was accepted (numeric vector or
+cell with `numel == #PVs`); a scalar against N>1 PVs was an error. Applies to
+both backends and to `pvaPutNoWait`.
+
+- Broadcast covers a numeric/logical scalar, a char row (e.g. an enum choice
+  string), a struct, and a 1x1 cell — so `pvaPut(wfPVs, {[1 2 3]})` writes the
+  same waveform to every array PV in the list.
+- Per-PV forms are unchanged: a numeric vector with one element per PV still
+  distributes element-wise (including the H1 non-double fix), as does a cell of
+  that length.
+- A list holding a *single* PV now takes the whole value argument, so
+  `pvaPut({'PV'}, [1 2 3])` writes a waveform like `pvaPut('PV', [1 2 3])`
+  instead of failing the length check.
+- Length mismatches are still an error (never a guess), with a message that now
+  names all three accepted forms. Complex values are rejected for every list
+  form, not just the element-wise one.
 
 ## 2026-08-05 — deep code review of the dual-backend port: fixes + known differences
 
