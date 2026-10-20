@@ -23,7 +23,14 @@ static std::string g_provider = "pva";   /* per-channel provider token   */
 static double      g_timeout  = 5.0;
 static bool        g_debug    = false;
 
-bool        pvaSetProvider(const std::string &p) { g_provider = p.empty() ? "pva" : p; return true; }
+bool pvaSetProvider(const std::string &p)
+{
+    /* The client is created with "pva ca", so any other token would only fail
+     * later, at connect time, as "provider ... not registered". */
+    if (!p.empty() && p != "pva" && p != "ca") return false;
+    g_provider = p.empty() ? "pva" : p;
+    return true;
+}
 std::string pvaGetProvider()                      { return g_provider; }
 void        pvaSetTimeout(double s)               { if (s > 0) g_timeout = s; }
 double      pvaGetTimeout()                       { return g_timeout; }
