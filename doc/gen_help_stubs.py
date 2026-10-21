@@ -32,7 +32,9 @@ VERBS = {
     "its index if a numeric type is requested). Anything richer -- an NTNDArray "
     "image, an NTTable, a custom multi-field group, or any PV without a "
     "top-level scalar/array value -- comes back as the whole nested struct (same "
-    "as pvaGetStructure), so you rarely need pvaGetStructure. While a monitor is "
+    "as pvaGetStructure), so you rarely need pvaGetStructure. With "
+    "pvaSetProvider('ca') it reads value/alarm/timeStamp, so ts is the record's "
+    "timestamp. While a monitor is "
     "active on the channel the value is served "
     "from the monitor cache (no network round-trip); pass poll=true to force a "
     "fresh server read (equivalent to reading after pvaClear, but without "
@@ -69,7 +71,10 @@ VERBS = {
     "active (and its request covers the requested fields), so reads cost no "
     "network round-trip; pass poll=true to force a fresh server read. With no "
     "active monitor, or when the monitor does not cover the request, it reads "
-    "fresh regardless (the result is always complete).",
+    "fresh regardless (the result is always complete). Over Channel Access "
+    "(pvaSetProvider('ca')) the default 'field()' read returns display/control "
+    "metadata but NO timeStamp (CA cannot send both in one read); request "
+    "'field(value,alarm,timeStamp)' for the timestamp.",
     "pvaGet, pvaPutStructure, pvaInfo, printpvs, printvals"),
 
 "pvaPut": (

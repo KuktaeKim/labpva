@@ -48,6 +48,20 @@ void backendGuardPvac();
 bool        pvaSetProvider(const std::string &providers);
 std::string pvaGetProvider();
 
+/* pvRequest for the value verbs (pvaGet, pvaGetTable). Over pvAccess it is the
+ * whole structure, so a rich PV (NTNDArray, NTTable, custom group) comes back
+ * complete. Over Channel Access a channel is only ever a scalar, array or enum,
+ * and pvAccessCA serves "field()" from a single DBR_CTRL_* read, which has
+ * limits/units but NO timestamp (numeric channels would report ts = 0). So for
+ * "ca" ask for just value/alarm/timeStamp (a DBR_TIME_* read). That is also
+ * pvaSetMonitor's default request, so such a monitor keeps serving these reads
+ * from its cache. Channels are opened with the current provider (pvaClient keys
+ * its channel cache on name+provider), so this always matches the read. */
+inline std::string pvaValueRequest()
+{
+    return pvaGetProvider() == "ca" ? "field(value,alarm,timeStamp)" : "field()";
+}
+
 void        pvaSetTimeout(double seconds);   /* connect/IO timeout, default 5 */
 double      pvaGetTimeout();
 

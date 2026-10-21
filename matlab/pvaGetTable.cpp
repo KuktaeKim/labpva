@@ -49,7 +49,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     const bool wantTs = nlhs >= 2;
     const bool wantAlarm = nlhs >= 3;
     for (size_t i = 0; i < pvs.size(); ++i) {
-        PvValue pv = pvaGet(pvs[i], "field()", err,
+        PvValue pv = pvaGet(pvs[i], pvaValueRequest(), err,
                             /*useMonitorCache=*/!poll,
                             /*requireWholeMonitor=*/true);
         if (err.err != PVA_OK) break;
