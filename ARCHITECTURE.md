@@ -109,6 +109,15 @@ scalar PV (e.g. to read `value`+`alarm`+`display` together). To make this work,
 the `pvaGet` value verb fetches `field()` (the whole structure), not just
 `field(value,alarm,timeStamp)`.
 
+The exception is the Channel Access provider (`pvaSetProvider('ca')`). A CA
+channel is only ever a scalar, array or enum, and pvAccessCA serves `field()`
+with a single `DBR_CTRL_*` read, which carries limits and units but **no
+timestamp**. So over `'ca'`, `pvaGet` and `pvaGetTable` request
+`field(value,alarm,timeStamp)` (a `DBR_TIME_*` read), so `ts` holds the record's
+timestamp. `pvaGetStructure(pv)` over `'ca'` still asks for `field()`: it
+returns the metadata without a `timeStamp`. Pass
+`'field(value,alarm,timeStamp)'` as the request to get the timestamp.
+
 `pvaGetTable` is the opt-in native-table view: it checks the top-level
 normative type id, orders variables by `labels`, reshapes each column to
 `N-by-1`, and constructs a MATLAB `table` (with MATLAB strings for string

@@ -17,6 +17,11 @@
  * = true to force a fresh server read (bypass the cache). With no active monitor
  * -- or when the monitor's request does not cover what was asked -- it reads
  * fresh regardless, so the result is always complete.
+ *
+ * Over Channel Access (pvaSetProvider('ca')) a single read cannot carry both
+ * metadata (DBR_CTRL_*) and a timestamp (DBR_TIME_*): the default "field()"
+ * returns display/control/valueAlarm but no timeStamp. Request
+ * "field(value,alarm,timeStamp)" for the timestamp.
  */
 #include "mglue.h"
 #include "pvaGlue.h"

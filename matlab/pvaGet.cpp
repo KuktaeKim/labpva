@@ -15,6 +15,10 @@
  * struct (the same tree pvaGetStructure gives). So pvaGet covers both cases:
  * bare value for scalars/arrays/enums, full structure otherwise.
  *
+ * With pvaSetProvider('ca') every channel is a scalar, array or enum, and the
+ * read requests only value/alarm/timeStamp so `ts` is the record's timestamp
+ * (a whole-structure CA read carries limits/units but no timestamp).
+ *
  * While a monitor is active on the name, the value is served from the monitor
  * cache (ezca-style, no network round-trip). Pass a trailing logical `poll`
  * = true to force a fresh server read instead.
@@ -55,8 +59,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         /* Fetch the whole structure: a scalar/array/enum is still returned as a
          * bare value (pvValueToMx), but a rich PV (NTNDArray, NTTable, custom
          * group) comes back as the full nested struct -- so the result is
-         * complete (e.g. an image's dimension/codec are present). */
-        PvValue pv = pvaGet(pvs[i], "field()", err,
+         * complete (e.g. an image's dimension/codec are present). Over 'ca'
+         * this is value/alarm/timeStamp instead, so `ts` is populated (see
+         * pvaValueRequest). */
+        PvValue pv = pvaGet(pvs[i], pvaValueRequest(), err,
                             /*useMonitorCache=*/!poll);
         if (err.err != PVA_OK) break;                 /* defer error to scope exit */
         vals.push_back(pvValueToMx(pv, type, err));

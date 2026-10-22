@@ -190,6 +190,10 @@ There are two read verbs. Use **`pvaGet`** for almost everything:
 **including for a scalar** (its `value` + `alarm` + `timeStamp` + `display`/…).
 Reach for it when you specifically want the full metadata tree of a scalar PV, or
 to scope the fetch with a `request` (e.g. `pvaGetStructure(pv,'field(value,alarm)')`).
+Over Channel Access (`pvaSetProvider('ca')`) one read cannot carry both metadata
+and a timestamp. The default `field()` returns `display`/`control`/`valueAlarm`
+but **no `timeStamp`**. Use `pvaGetStructure(pv,'field(value,alarm,timeStamp)')`
+for the timestamp. `pvaGet` and `pvaGetTable` already do this over `'ca'`.
 
 Both accept a trailing **`poll`** flag: while a monitor is active, reads are
 served from the monitor cache; `pvaGet(pv,true)` / `pvaGetStructure(pv,true)`
