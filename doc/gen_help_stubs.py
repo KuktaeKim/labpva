@@ -273,7 +273,9 @@ VERBS = {
     ["pvaSetProvider('pva')                  % use pvAccess (default)",
      "pvaSetProvider('ca')                   % use Channel Access"],
     "Affects channels opened after the call; already-cached channels keep "
-    "their provider. No labca analogue (Channel Access has one protocol).",
+    "their provider. The token is case-insensitive ('CA' is 'ca'; '' is "
+    "'pva'); any other token errors with labpva:invalidArg and leaves the "
+    "provider unchanged. No labca analogue (Channel Access has one protocol).",
     "pvaGetProvider"),
 
 "pvaGetProvider": (

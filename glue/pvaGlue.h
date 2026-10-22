@@ -40,10 +40,12 @@ void backendGuardPvac();
 
 /* ---- configuration (analogues of lcaSet/GetTimeout etc.) ------------- */
 
-/* Provider token for subsequently-opened channels. On the classic backend
- * "pva" (default) or "ca" (Channel Access fallback for v3-only names). Returns
- * false if this backend cannot provide the requested protocol -- the PVXS
- * backend speaks pvAccess only, so it refuses "ca" (the MEX then raises a
+/* Provider token for subsequently-opened channels: "pva" (default; "" means
+ * the same) or "ca" (Channel Access fallback for v3-only names), exact lower
+ * case -- the pvaSetProvider MEX trims, lower-cases and rejects anything else
+ * before calling this. Returns false, leaving the provider unchanged, for any
+ * other token or if this backend cannot provide the requested protocol -- the
+ * PVXS backend speaks pvAccess only, so it refuses "ca" (the MEX then raises a
  * clear labpva:unsupported error). */
 bool        pvaSetProvider(const std::string &providers);
 std::string pvaGetProvider();

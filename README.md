@@ -333,7 +333,7 @@ read past the monitor cache. `help <verb>` gives per-verb detail.
 | function | description |
 | --- | --- |
 | `pvaSetTimeout(sec)` / `pvaGetTimeout()` | Get/set the connect/IO timeout, in seconds. |
-| `pvaSetProvider(p)` / `pvaGetProvider()` | `'pva'` (default) or `'ca'` for subsequently-opened channels. |
+| `pvaSetProvider(p)` / `pvaGetProvider()` | `'pva'` (default) or `'ca'` for subsequently-opened channels; case-insensitive, any other token errors (`labpva:invalidArg`). |
 | `pvaDebugOn()` / `pvaDebugOff()` | Toggle pvaClient + labpva debug output. |
 | `pvaLastError()` | `[code, message]` of the last operation (`code` 0 = ok). |
 
