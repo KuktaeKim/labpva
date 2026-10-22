@@ -329,7 +329,7 @@ read past the monitor cache. `help <verb>` gives per-verb detail.
 | `pvaGetAlarmLimits(pv)` | `[lo, hi]` alarm thresholds (`valueAlarm.*`). |
 | `pvaGetWarnLimits(pv)` | `[lo, hi]` warning thresholds (`valueAlarm.*`). |
 | `pvaGetUnits(pv)` | Engineering-units string (`display.units`). |
-| `pvaGetPrecision(pv)` | Display precision (`display.precision`). |
+| `pvaGetPrecision(pv)` | Display precision (`display.precision`; over `'ca'`, parsed from `display.format`, e.g. `F9.3` → 3). |
 | `pvaGetEnumStrings(pv)` | Cell of an NTEnum's choice strings. |
 
 **Configuration / diagnostics**

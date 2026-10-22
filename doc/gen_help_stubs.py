@@ -250,7 +250,11 @@ VERBS = {
 "pvaGetPrecision": (
     "Display precision of a channel.",
     ["p = pvaGetPrecision(pvName[s])"],
-    "Read from the NT display.precision field.",
+    "Read from the NT display.precision field. Over Channel Access "
+    "(pvaSetProvider('ca')) there is no such field, so the precision is "
+    "parsed from display.format instead ('F9.3' -> 3; integer formats such "
+    "as 'I12' -> 0). NaN when the channel has neither (e.g. an NTEnum, or an "
+    "enum/string record over 'ca').",
     "pvaGetUnits, pvaGetGraphicLimits"),
 
 "pvaGetEnumStrings": (

@@ -222,6 +222,13 @@ array. Where a single PV name is passed, output is the value itself; for a cell
 of names, output is an `N×1` numeric column when every value is a real scalar,
 otherwise an `N×1` cell.
 
+The metadata getters return `NaN`/`''` when the channel has no such field (e.g.
+`pvaGetPrecision` or `pvaGetControlLimits` on an NTEnum). `pvaGetPrecision` has
+one provider-specific fallback: pvAccessCA's `display` structure has no
+`precision` field. It encodes the CA precision in `display.format` instead
+(`F<prec+6>.<prec>` for float/double, `I4`/`I6`/`I12` for char/short/long), so
+`pvaGetPrecision` parses that when `display.precision` is absent.
+
 labca verbs intentionally **not** carried over: `lcaSetRetryCount`/
 `lcaGetRetryCount` (CA-specific retry model; PVA reconnects internally),
 `lcaSetSeverityWarnLevel` (CA console-warning knob), `lcaDelay` (use MATLAB
